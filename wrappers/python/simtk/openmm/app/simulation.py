@@ -194,12 +194,13 @@ class Simulation(object):
                     anyReport = True
             stepsToGo = nextSteps
             while stepsToGo > 10:
+                self.currentStep += 10 
                 self.integrator.step(10) # Only take 10 steps at a time, to give Python more chances to respond to a control-c.
                 stepsToGo -= 10
                 if endTime is not None and datetime.now() >= endTime:
                     return
+            self.currentStep += stepsToGo
             self.integrator.step(stepsToGo)
-            self.currentStep += nextSteps
             if anyReport:
                 # One or more reporters are ready to generate reports.  Organize them into three
                 # groups: ones that want wrapped positions, ones that want unwrapped positions,
