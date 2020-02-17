@@ -18,12 +18,12 @@ matrix:
   include:
     - sudo: required
       dist: xenial
-      env: ==CPU_OPENCL==
-           OPENCL=true
-           CUDA=false
-           CC=$CCACHE/gcc
-           CXX=$CCACHE/g++
-           CMAKE_FLAGS="
+      env: env_name="==CPU_OPENCL=="
+      env: OPENCL=true
+      env: CUDA=false
+      env: CC=$CCACHE/gcc
+      env: CXX=$CCACHE/g++
+      env: CMAKE_FLAGS="
            -OPENMM_BUILD_OPENCL_LIB=ON
            -DOPENMM_BUILD_OPENCL_TESTS=ON
            -DOPENMM_BUILD_STATIC_LIB=OFF
