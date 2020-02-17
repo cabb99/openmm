@@ -48,6 +48,7 @@
 #include "ReferenceCustomExternalIxn.h"
 #include "ReferenceCustomGBIxn.h"
 #include "ReferenceCustomHbondIxn.h"
+#include "ReferenceCustomResiduePairIxn.h"
 #include "ReferenceCustomNonbondedIxn.h"
 #include "ReferenceCustomManyParticleIxn.h"
 #include "ReferenceCustomTorsionIxn.h"
@@ -75,6 +76,7 @@
 #include "openmm/internal/CustomCentroidBondForceImpl.h"
 #include "openmm/internal/CustomCompoundBondForceImpl.h"
 #include "openmm/internal/CustomHbondForceImpl.h"
+#include "openmm/internal/CustomResiduePairForceImpl.h"
 #include "openmm/internal/CustomNonbondedForceImpl.h"
 #include "openmm/internal/CMAPTorsionForceImpl.h"
 #include "openmm/internal/NonbondedForceImpl.h"
@@ -1748,6 +1750,125 @@ double ReferenceCalcCustomHbondForceKernel::execute(ContextImpl& context, bool i
 }
 
 void ReferenceCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl& context, const CustomHbondForce& force) {
+    if (numDonors != force.getNumDonors())
+        throw OpenMMException("updateParametersInContext: The number of donors has changed");
+    if (numAcceptors != force.getNumAcceptors())
+        throw OpenMMException("updateParametersInContext: The number of acceptors has changed");
+
+    // Record the values.
+
+    vector<double> parameters;
+    int numDonorParameters = force.getNumPerDonorParameters();
+    const vector<vector<int> >& donorAtoms = ixn->getDonorAtoms();
+    for (int i = 0; i < numDonors; ++i) {
+        int d1, d2, d3;
+        force.getDonorParameters(i, d1, d2, d3, parameters);
+        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2])
+            throw OpenMMException("updateParametersInContext: The set of particles in a donor group has changed");
+        for (int j = 0; j < numDonorParameters; j++)
+            donorParamArray[i][j] = parameters[j];
+    }
+    int numAcceptorParameters = force.getNumPerAcceptorParameters();
+    const vector<vector<int> >& acceptorAtoms = ixn->getAcceptorAtoms();
+    for (int i = 0; i < numAcceptors; ++i) {
+        int a1, a2, a3;
+        force.getAcceptorParameters(i, a1, a2, a3, parameters);
+        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2])
+            throw OpenMMException("updateParametersInContext: The set of particles in an acceptor group has changed");
+        for (int j = 0; j < numAcceptorParameters; j++)
+            acceptorParamArray[i][j] = parameters[j];
+    }
+}
+
+ReferenceCalcCustomResiduePairForceKernel::~ReferenceCalcCustomResiduePairForceKernel() {
+    if (ixn != NULL)
+        delete ixn;
+}
+
+void ReferenceCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
+
+    // Record the exclusions.
+
+    numDonors = force.getNumDonors();
+    numAcceptors = force.getNumAcceptors();
+    numParticles = system.getNumParticles();
+    exclusions.resize(numDonors);
+    for (int i = 0; i < force.getNumExclusions(); i++) {
+        int donor, acceptor;
+        force.getExclusionParticles(i, donor, acceptor);
+        exclusions[donor].insert(acceptor);
+    }
+
+    // Build the arrays.
+
+    vector<vector<int> > donorParticles(numDonors);
+    int numDonorParameters = force.getNumPerDonorParameters();
+    donorParamArray.resize(numDonors);
+    for (int i = 0; i < numDonors; ++i) {
+        int d1, d2, d3;
+        force.getDonorParameters(i, d1, d2, d3, donorParamArray[i]);
+        donorParticles[i].push_back(d1);
+        donorParticles[i].push_back(d2);
+        donorParticles[i].push_back(d3);
+    }
+    vector<vector<int> > acceptorParticles(numAcceptors);
+    int numAcceptorParameters = force.getNumPerAcceptorParameters();
+    acceptorParamArray.resize(numAcceptors);
+    for (int i = 0; i < numAcceptors; ++i) {
+        int a1, a2, a3;
+        force.getAcceptorParameters(i, a1, a2, a3, acceptorParamArray[i]);
+        acceptorParticles[i].push_back(a1);
+        acceptorParticles[i].push_back(a2);
+        acceptorParticles[i].push_back(a3);
+    }
+    NonbondedMethod nonbondedMethod = CalcCustomResiduePairForceKernel::NonbondedMethod(force.getNonbondedMethod());
+    nonbondedCutoff = force.getCutoffDistance();
+
+    // Create custom functions for the tabulated functions.
+
+    map<string, Lepton::CustomFunction*> functions;
+    for (int i = 0; i < force.getNumFunctions(); i++)
+        functions[force.getTabulatedFunctionName(i)] = createReferenceTabulatedFunction(force.getTabulatedFunction(i));
+
+    // Parse the expression and create the object used to calculate the interaction.
+
+    map<string, vector<int> > distances;
+    map<string, vector<int> > angles;
+    map<string, vector<int> > dihedrals;
+    Lepton::ParsedExpression energyExpression = CustomResiduePairForceImpl::prepareExpression(force, functions, distances, angles, dihedrals);
+    vector<string> donorParameterNames;
+    vector<string> acceptorParameterNames;
+    for (int i = 0; i < numDonorParameters; i++)
+        donorParameterNames.push_back(force.getPerDonorParameterName(i));
+    for (int i = 0; i < numAcceptorParameters; i++)
+        acceptorParameterNames.push_back(force.getPerAcceptorParameterName(i));
+    for (int i = 0; i < force.getNumGlobalParameters(); i++)
+        globalParameterNames.push_back(force.getGlobalParameterName(i));
+    ixn = new ReferenceCustomResiduePairIxn(donorParticles, acceptorParticles, energyExpression, donorParameterNames, acceptorParameterNames, distances, angles, dihedrals);
+    isPeriodic = (nonbondedMethod == CutoffPeriodic);
+    if (nonbondedMethod != NoCutoff)
+        ixn->setUseCutoff(nonbondedCutoff);
+
+    // Delete the custom functions.
+
+    for (auto& function : functions)
+        delete function.second;
+}
+
+double ReferenceCalcCustomResiduePairForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    vector<Vec3>& posData = extractPositions(context);
+    vector<Vec3>& forceData = extractForces(context);
+    if (isPeriodic)
+        ixn->setPeriodic(extractBoxVectors(context));
+    double energy = 0;
+    map<string, double> globalParameters;
+    for (auto& name : globalParameterNames)
+        globalParameters[name] = context.getParameter(name);
+    ixn->calculatePairIxn(posData, donorParamArray, acceptorParamArray, exclusions, globalParameters, forceData, includeEnergy ? &energy : NULL);
+    return energy;
+}
+
+void ReferenceCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force) {
     if (numDonors != force.getNumDonors())
         throw OpenMMException("updateParametersInContext: The number of donors has changed");
     if (numAcceptors != force.getNumAcceptors())

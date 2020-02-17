@@ -63,6 +63,8 @@ KernelImpl* OpenCLKernelFactory::createKernelImpl(std::string name, const Platfo
             return new OpenCLParallelCalcCustomExternalForceKernel(name, platform, data, context.getSystem());
         if (name == CalcCustomHbondForceKernel::Name())
             return new OpenCLParallelCalcCustomHbondForceKernel(name, platform, data, context.getSystem());
+        if (name == CalcCustomResiduePairForceKernel::Name())
+            return new OpenCLParallelCalcCustomResiduePairForceKernel(name, platform, data, context.getSystem());
         if (name == CalcCustomCompoundBondForceKernel::Name())
             return new OpenCLParallelCalcCustomCompoundBondForceKernel(name, platform, data, context.getSystem());
     }
@@ -103,6 +105,8 @@ KernelImpl* OpenCLKernelFactory::createKernelImpl(std::string name, const Platfo
         return new CommonCalcCustomExternalForceKernel(name, platform, cl, context.getSystem());
     if (name == CalcCustomHbondForceKernel::Name())
         return new CommonCalcCustomHbondForceKernel(name, platform, cl, context.getSystem());
+    if (name == CalcCustomResiduePairForceKernel::Name())
+        return new CommonCalcCustomResiduePairForceKernel(name, platform, cl, context.getSystem());
     if (name == CalcCustomCentroidBondForceKernel::Name())
         return new CommonCalcCustomCentroidBondForceKernel(name, platform, cl, context.getSystem());
     if (name == CalcCustomCompoundBondForceKernel::Name())

@@ -43,6 +43,7 @@
 #include "openmm/CustomExternalForce.h"
 #include "openmm/CustomGBForce.h"
 #include "openmm/CustomHbondForce.h"
+#include "openmm/CustomResiduePairForce.h"
 #include "openmm/CustomIntegrator.h"
 #include "openmm/CustomManyParticleForce.h"
 #include "openmm/CustomNonbondedForce.h"
@@ -81,6 +82,7 @@
 #include "openmm/serialization/CustomExternalForceProxy.h"
 #include "openmm/serialization/CustomGBForceProxy.h"
 #include "openmm/serialization/CustomHbondForceProxy.h"
+#include "openmm/serialization/CustomResiduePairForceProxy.h"
 #include "openmm/serialization/CustomIntegratorProxy.h"
 #include "openmm/serialization/CustomManyParticleForceProxy.h"
 #include "openmm/serialization/CustomNonbondedForceProxy.h"
@@ -137,6 +139,7 @@ extern "C" void registerSerializationProxies() {
     SerializationProxy::registerProxy(typeid(CustomExternalForce), new CustomExternalForceProxy());
     SerializationProxy::registerProxy(typeid(CustomGBForce), new CustomGBForceProxy());
     SerializationProxy::registerProxy(typeid(CustomHbondForce), new CustomHbondForceProxy());
+    SerializationProxy::registerProxy(typeid(CustomResiduePairForce), new CustomResiduePairForceProxy());
     SerializationProxy::registerProxy(typeid(CustomIntegrator), new CustomIntegratorProxy());
     SerializationProxy::registerProxy(typeid(CustomManyParticleForce), new CustomManyParticleForceProxy());
     SerializationProxy::registerProxy(typeid(CustomNonbondedForce), new CustomNonbondedForceProxy());

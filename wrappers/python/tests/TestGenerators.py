@@ -20,8 +20,8 @@ class TestGenerators(unittest.TestCase):
         # alanine dipeptide with implicit water
         self.pdb1 = PDBFile('systems/alanine-dipeptide-implicit.pdb')
 
-
-    def test_CustomHbondGenerator(self):
+    
+def test_CustomHbondGenerator(self):
         """Test the generator for CustomHbondForce."""
 
         for bondCutoff in range(4):
@@ -96,6 +96,84 @@ class TestGenerators(unittest.TestCase):
             self.assertEqual((3.0,), params)
         for i in range(hbond.getNumAcceptors()):
             atom1, atom2, atom3, params = hbond.getAcceptorParameters(i)
+            self.assertTrue((atom1, atom2, atom3) in expectedAcceptors)
+            self.assertEqual((2.0,), params)
+
+    def test_CustomResiduePairGenerator(self):
+        """Test the generator for CustomResiduePairForce."""
+
+        for bondCutoff in range(4):
+            xml = """
+<ForceField>
+ <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="3" particlesPerAcceptor="2" bondCutoff="%d">
+  <PerDonorParameter name="a"/>
+  <PerAcceptorParameter name="b"/>
+  <Donor class1="C" class2="N" class3="H" a="3"/>
+  <Acceptor class1="C" class2="O" b="2"/>
+  <Function name="test" min="1" max="2" type="Continuous1D">
+   0 1 2 3 4 5
+  </Function>
+ </CustomResiduePairForce>
+</ForceField>""" % bondCutoff
+            ff = ForceField('amber99sb.xml', StringIO(xml))
+            system = ff.createSystem(self.pdb1.topology)
+            residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
+            self.assertEqual(1, residuepair.getNumPerDonorParameters())
+            self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
+            self.assertEqual('a', residuepair.getPerDonorParameterName(0))
+            self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
+            self.assertEqual(1, residuepair.getNumTabulatedFunctions())
+            expectedDonors = [(4,6,7), (14,16,17)]
+            expectedAcceptors = [(4,5,-1), (14,15,-1)]
+            self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
+            self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
+            for i in range(residuepair.getNumDonors()):
+                atom1, atom2, atom3, params = residuepair.getDonorParameters(i)
+                self.assertTrue((atom1, atom2, atom3) in expectedDonors)
+                self.assertEqual((3.0,), params)
+            for i in range(residuepair.getNumAcceptors()):
+                atom1, atom2, atom3, params = residuepair.getAcceptorParameters(i)
+                self.assertTrue((atom1, atom2, atom3) in expectedAcceptors)
+                self.assertEqual((2.0,), params)
+            expectedExclusions = [(0,0), (1,1)]
+            if bondCutoff >= 2:
+                expectedExclusions.append((0,1))
+            if bondCutoff >= 3:
+                expectedExclusions.append((1,0))
+            self.assertEqual(len(expectedExclusions), residuepair.getNumExclusions())
+            for i in range(residuepair.getNumExclusions()):
+                self.assertTrue(tuple(residuepair.getExclusionParticles(i)) in expectedExclusions)
+
+
+    def test_CustomResiduePairGenerator2(self):
+        """Test the generator for CustomResiduePairForce with different parameters."""
+
+        xml = """
+<ForceField>
+ <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="1" bondCutoff="0">
+  <PerDonorParameter name="a"/>
+  <PerAcceptorParameter name="b"/>
+  <Donor class1="N" class2="H" a="3"/>
+  <Acceptor class1="O" b="2"/>
+ </CustomResiduePairForce>
+</ForceField>"""
+        ff = ForceField('amber99sb.xml', StringIO(xml))
+        system = ff.createSystem(self.pdb1.topology)
+        residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
+        self.assertEqual(1, residuepair.getNumPerDonorParameters())
+        self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
+        self.assertEqual('a', residuepair.getPerDonorParameterName(0))
+        self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
+        expectedDonors = [(6,7,-1), (16,17,-1)]
+        expectedAcceptors = [(5,-1,-1), (15,-1,-1)]
+        self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
+        self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
+        for i in range(residuepair.getNumDonors()):
+            atom1, atom2, atom3, params = residuepair.getDonorParameters(i)
+            self.assertTrue((atom1, atom2, atom3) in expectedDonors)
+            self.assertEqual((3.0,), params)
+        for i in range(residuepair.getNumAcceptors()):
+            atom1, atom2, atom3, params = residuepair.getAcceptorParameters(i)
             self.assertTrue((atom1, atom2, atom3) in expectedAcceptors)
             self.assertEqual((2.0,), params)
 

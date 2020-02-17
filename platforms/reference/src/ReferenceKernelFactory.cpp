@@ -74,6 +74,8 @@ KernelImpl* ReferenceKernelFactory::createKernelImpl(std::string name, const Pla
         return new ReferenceCalcCustomExternalForceKernel(name, platform);
     if (name == CalcCustomHbondForceKernel::Name())
         return new ReferenceCalcCustomHbondForceKernel(name, platform);
+    if (name == CalcCustomResiduePairForceKernel::Name())
+        return new ReferenceCalcCustomResiduePairForceKernel(name, platform);
     if (name == CalcCustomCentroidBondForceKernel::Name())
         return new ReferenceCalcCustomCentroidBondForceKernel(name, platform);
     if (name == CalcCustomCompoundBondForceKernel::Name())

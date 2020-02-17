@@ -457,6 +457,67 @@ class TestAPIUnits(unittest.TestCase):
         force.setNonbondedMethod(CustomHbondForce.CutoffPeriodic)
         self.assertTrue(force.usesPeriodicBoundaryConditions())
 
+    def testCustomResiduePairForce(self):
+        """ Tests the CustomResiduePairForce API features """
+        force = CustomResiduePairForce('kd*(distance(a1,d1)-r0)^2 + '
+                                 'ka*(angle(a1,d1,d2)-theta0)^2')
+        force.addPerAcceptorParameter('r0')
+        force.addPerAcceptorParameter('ka')
+        force.addPerDonorParameter('theta0')
+        force.addPerDonorParameter('kd')
+        force.setCutoffDistance(10*angstroms)
+
+        self.assertEqual(force.getNumPerAcceptorParameters(), 2)
+        self.assertEqual(force.getNumPerDonorParameters(), 2)
+        self.assertEqual(force.getCutoffDistance(), 1*nanometers)
+        self.assertIs(force.getCutoffDistance().unit, nanometer)
+
+        force.addAcceptor(0, 1, 2, [0.2, 10.0])
+        force.addAcceptor(3, -1, -1, [4*angstroms,
+                                      20.0*kilocalories_per_mole/angstroms**2])
+        force.addDonor(4, 5, 6, [math.pi, 30])
+        force.addDonor(7, 8, -1, [180*degrees,
+                                  40*kilocalories_per_mole/radians**2])
+
+        self.assertEqual(force.getNumAcceptors(), 2)
+        self.assertEqual(force.getNumDonors(), 2)
+
+        i, j, k, (r0, ka) = force.getAcceptorParameters(0)
+        self.assertEqual(i, 0)
+        self.assertEqual(j, 1)
+        self.assertEqual(k, 2)
+        self.assertEqual(r0, 0.2)
+        self.assertEqual(ka, 10)
+
+        i, j, k, (r0, ka) = force.getAcceptorParameters(1)
+        self.assertEqual(i, 3)
+        self.assertEqual(j, -1)
+        self.assertEqual(k, -1)
+        self.assertEqual(r0, 0.4)
+        self.assertEqual(ka, 20*4.184*100)
+
+        i, j, k, (theta0, kd) = force.getDonorParameters(0)
+        self.assertEqual(i, 4)
+        self.assertEqual(j, 5)
+        self.assertEqual(k, 6)
+        self.assertEqual(theta0, math.pi)
+        self.assertEqual(kd, 30)
+
+        i, j, k, (theta0, kd) = force.getDonorParameters(1)
+        self.assertEqual(i, 7)
+        self.assertEqual(j, 8)
+        self.assertEqual(k, -1)
+        self.assertEqual(theta0, math.pi)
+        self.assertEqual(kd, 40*4.184)
+
+        self.assertFalse(force.usesPeriodicBoundaryConditions())
+        force.setNonbondedMethod(CustomResiduePairForce.NoCutoff)
+        self.assertFalse(force.usesPeriodicBoundaryConditions())
+        force.setNonbondedMethod(CustomResiduePairForce.CutoffNonPeriodic)
+        self.assertFalse(force.usesPeriodicBoundaryConditions())
+        force.setNonbondedMethod(CustomResiduePairForce.CutoffPeriodic)
+        self.assertTrue(force.usesPeriodicBoundaryConditions())
+
     def testCustomNonbondedForce(self):
         """ Tests the CustomNonbondedForce API features """
         force = CustomNonbondedForce('4*diel*q1*q2/r+sqrt(p1*p2)/r^2-sqrt(m1*m2)/r^3')

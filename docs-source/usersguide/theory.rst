@@ -1178,6 +1178,44 @@ specified in three ways:
 * Per-donor parameters are defined by specifying a value for each donor group.
 * Per-acceptor parameters are defined by specifying a value for each acceptor group.
 
+CustomResiduePairForce
+****************
+
+CustomResiduePairForce supports a wide variety of energy functions used to represent
+hydrogen bonding.  It computes interactions between "donor" particle groups and
+"acceptor" particle groups, where each group may include up to three particles.
+Typically a donor group consists of a hydrogen atom and the atoms it is bonded
+to, and an acceptor group consists of a negatively charged atom and the atoms it
+is bonded to.  The interaction energy between each donor group and each acceptor
+group is given by
+
+
+.. math::
+   E=f(\{r_i\},\{\theta_i\},\{\phi_i\})
+
+
+where *f*\ (\ *...*\ ) is a user defined mathematical expression.  It may
+depend on an arbitrary set of distances {\ :math:`r_i`\ }, angles {\ :math:`\theta_i`\ },
+and dihedral angles {\ :math:`\phi_i`\ }.
+
+Each distance, angle, or dihedral is defined by specifying a sequence of
+particles chosen from the interacting donor and acceptor groups (up to six atoms
+to choose from, since each group may contain up to three atoms).  A distance
+variable is defined by two particles, and equals the distance between them.  An
+angle variable is defined by three particles, and equals the angle between them.
+A dihedral variable is defined by four particles, and equals the angle between
+the first and last particles about the axis formed by the middle two particles.
+It is equal to zero when the first and last particles are on the same side of
+the axis.
+
+In addition to depending on distances, angles, and dihedrals, the energy may
+also depend on an arbitrary set of user defined parameters.  Parameters may be
+specified in three ways:
+
+* Global parameters have a single, fixed value.
+* Per-donor parameters are defined by specifying a value for each donor group.
+* Per-acceptor parameters are defined by specifying a value for each acceptor group.
+
 .. _customcvforce:
 
 CustomCVForce

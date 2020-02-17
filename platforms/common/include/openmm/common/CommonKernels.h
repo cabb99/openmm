@@ -727,6 +727,59 @@ private:
     const System& system;
     ComputeKernel donorKernel, acceptorKernel;
 };
+/**
+ * This kernel is invoked by CustomResiduePairForce to calculate the forces acting on the system.
+ */
+class CommonCalcCustomResiduePairForceKernel : public CalcCustomResiduePairForceKernel {
+public:
+    CommonCalcCustomResiduePairForceKernel(std::string name, const Platform& platform, ComputeContext& cc, const System& system) : CalcCustomResiduePairForceKernel(name, platform),
+            hasInitializedKernel(false), cc(cc), donorParams(NULL), acceptorParams(NULL), system(system) {
+    }
+    ~CommonCalcCustomResiduePairForceKernel();
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param force      the CustomResiduePairForce this kernel will be used for
+     */
+    void initialize(const System& system, const CustomResiduePairForce& force);
+    /**
+     * Execute the kernel to calculate the forces and/or energy.
+     *
+     * @param context        the context in which to execute this kernel
+     * @param includeForces  true if forces should be calculated
+     * @param includeEnergy  true if the energy should be calculated
+     * @return the potential energy due to the force
+     */
+    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
+    /**
+     * Copy changed parameters over to a context.
+     *
+     * @param context    the context to copy parameters to
+     * @param force      the CustomResiduePairForce to copy the parameters from
+     */
+    void copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force);
+private:
+    class ForceInfo;
+    int numDonors, numAcceptors;
+    bool hasInitializedKernel;
+    ComputeContext& cc;
+    ForceInfo* info;
+    ComputeParameterSet* donorParams;
+    ComputeParameterSet* acceptorParams;
+    ComputeArray globals;
+    ComputeArray donors;
+    ComputeArray acceptors;
+    ComputeArray donorBufferIndices;
+    ComputeArray acceptorBufferIndices;
+    ComputeArray donorExclusions;
+    ComputeArray acceptorExclusions;
+    std::vector<std::string> globalParamNames;
+    std::vector<float> globalParamValues;
+    std::vector<ComputeArray> tabulatedFunctions;
+    const System& system;
+    ComputeKernel donorKernel, acceptorKernel;
+};
 
 /**
  * This kernel is invoked by CustomManyParticleForce to calculate the forces acting on the system.

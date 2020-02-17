@@ -31,6 +31,7 @@
 #include "openmm/internal/ContextImpl.h"
 #include "openmm/internal/CustomCompoundBondForceImpl.h"
 #include "openmm/internal/CustomHbondForceImpl.h"
+#include "openmm/internal/CustomResiduePairForceImpl.h"
 #include "openmm/internal/NonbondedForceImpl.h"
 #include "openmm/internal/OSRngSeed.h"
 #include "CudaBondedUtilities.h"
