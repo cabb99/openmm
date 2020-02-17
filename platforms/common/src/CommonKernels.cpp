@@ -4465,19 +4465,19 @@ CommonCalcCustomResiduePairForceKernel::~CommonCalcCustomResiduePairForceKernel(
         delete acceptorParams;
 }
 
-static void addDonorAndAcceptorCode(stringstream& computeDonor, stringstream& computeAcceptor, const string& value) {
-    computeDonor << value;
-    computeAcceptor << value;
-}
+//static void addDonorAndAcceptorCode(stringstream& computeDonor, stringstream& computeAcceptor, const string& value) {
+//    computeDonor << value;
+//    computeAcceptor << value;
+//}
 
-static void applyDonorAndAcceptorForces(stringstream& applyToDonor, stringstream& applyToAcceptor, int atom, const string& value, bool trim=true) {
-    string forceNames[] = {"f1", "f2", "f3"};
-    string toAdd = (trim ? "trimTo3("+value+")" : value);
-    if (atom < 3)
-        applyToAcceptor << forceNames[atom]<<" += "<<toAdd<<";\n";
-    else
-        applyToDonor << forceNames[atom-3]<<" += "<<toAdd<<";\n";
-}
+//static void applyDonorAndAcceptorForces(stringstream& applyToDonor, stringstream& applyToAcceptor, int atom, const string& value, bool trim=true) {
+//    string forceNames[] = {"f1", "f2", "f3"};
+//    string toAdd = (trim ? "trimTo3("+value+")" : value);
+//    if (atom < 3)
+//        applyToAcceptor << forceNames[atom]<<" += "<<toAdd<<";\n";
+//    else
+//        applyToDonor << forceNames[atom-3]<<" += "<<toAdd<<";\n";
+//}
 
 void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
     // Record the lists of donors and acceptors, and the parameters for each one.
