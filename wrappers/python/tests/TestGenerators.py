@@ -20,8 +20,8 @@ class TestGenerators(unittest.TestCase):
         # alanine dipeptide with implicit water
         self.pdb1 = PDBFile('systems/alanine-dipeptide-implicit.pdb')
 
-    
-def test_CustomHbondGenerator(self):
+
+    def test_CustomHbondGenerator(self):
         """Test the generator for CustomHbondForce."""
 
         for bondCutoff in range(4):
