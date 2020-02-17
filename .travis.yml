@@ -18,12 +18,12 @@ matrix:
   include:
     - sudo: required
       dist: xenial
-      env: env_name="==CPU_OPENCL=="
-      env: OPENCL=true
-      env: CUDA=false
-      env: CC=$CCACHE/gcc
-      env: CXX=$CCACHE/g++
-      env: CMAKE_FLAGS="
+      env: ENV_NAME = "==CPU_OPENCL=="
+           OPENCL=true
+           CUDA=false
+           CC=$CCACHE/gcc
+           CXX=$CCACHE/g++
+           CMAKE_FLAGS="
            -OPENMM_BUILD_OPENCL_LIB=ON
            -DOPENMM_BUILD_OPENCL_TESTS=ON
            -DOPENMM_BUILD_STATIC_LIB=OFF
@@ -41,7 +41,7 @@ matrix:
 
     - sudo: required
       dist: xenial
-      env: ==CUDA_COMPILE==
+      env: ENV_NAME = ==CUDA_COMPILE==
            CUDA=true
            OPENCL=false
            CUDA_VERSION="7.5-18"
@@ -66,7 +66,7 @@ matrix:
     - language: objective-c
       os: osx
       osx_image: xcode9.3
-      env: ==OSX==
+      env: ENV_NAME = ==OSX==
            OPENCL=false
            CUDA=false
            CMAKE_FLAGS="
@@ -76,7 +76,7 @@ matrix:
     - sudo: false
       dist: xenial
       python: 3.6
-      env: ==STATIC_LIB==
+      env: ENV_NAME = ==STATIC_LIB==
            OPENCL=false
            CUDA=false
            CC=$CCACHE/clang
@@ -86,7 +86,7 @@ matrix:
     - sudo: false
       dist: xenial
       python: 3.6
-      env: ==PYTHON_3_6==
+      env: ENV_NAME = ==PYTHON_3_6==
            OPENCL=false
            CUDA=false
            CC=$CCACHE/clang
@@ -97,7 +97,7 @@ matrix:
     - sudo: false
       dist: xenial
       python: 3.8
-      env: ==PYTHON_3_8==
+      env: ENV_NAME = ==PYTHON_3_8==
            OPENCL=false
            CUDA=false
            CC=$CCACHE/gcc
