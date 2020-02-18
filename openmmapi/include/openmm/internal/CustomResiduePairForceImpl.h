@@ -80,12 +80,12 @@ public:
      * @return a Parsed expression for the energy
      */
     static Lepton::ParsedExpression prepareExpression(const CustomResiduePairForce& force, const std::map<std::string, Lepton::CustomFunction*>& functions, std::map<std::string, std::vector<int> >& distances,
-            std::map<std::string, std::vector<int> >& angles, std::map<std::string, std::vector<int> >& dihedrals);
+            std::map<std::string, std::vector<int> >& angles, std::map<std::string, std::vector<int> >& vectorangles, std::map<std::string, std::vector<int> >& dihedrals);
 private:
     class FunctionPlaceholder;
     static Lepton::ExpressionTreeNode replaceFunctions(const Lepton::ExpressionTreeNode& node, std::map<std::string, int> atoms,
             std::map<std::string, std::vector<int> >& distances, std::map<std::string, std::vector<int> >& angles,
-            std::map<std::string, std::vector<int> >& dihedrals, std::set<std::string>& variables);
+            std::map<std::string, std::vector<int> >& vectorangles, std::map<std::string, std::vector<int> >& dihedrals, std::set<std::string>& variables);
     const CustomResiduePairForce& owner;
     Kernel kernel;
 };

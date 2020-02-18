@@ -46,13 +46,16 @@ using namespace OpenMM;
 
 ReferenceCustomResiduePairIxn::ReferenceCustomResiduePairIxn(const vector<vector<int> >& donorAtoms, const vector<vector<int> >& acceptorAtoms,
             const Lepton::ParsedExpression& energyExpression, const vector<string>& donorParameterNames, const vector<string>& acceptorParameterNames,
-            const map<string, vector<int> >& distances, const map<string, vector<int> >& angles, const map<string, vector<int> >& dihedrals) :
+            const map<string, vector<int> >& distances, const map<string, vector<int> >& angles,
+            const map<string, vector<int> >& vectorangles, const map<string, vector<int> >& dihedrals) :
             cutoff(false), periodic(false), donorAtoms(donorAtoms), acceptorAtoms(acceptorAtoms), energyExpression(energyExpression.createProgram()),
             donorParamNames(donorParameterNames), acceptorParamNames(acceptorParameterNames) {
     for (auto& term : distances)
         distanceTerms.push_back(ReferenceCustomResiduePairIxn::DistanceTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
     for (auto& term : angles)
         angleTerms.push_back(ReferenceCustomResiduePairIxn::AngleTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
+    for (auto& term : vectorangles)
+        vectorangleTerms.push_back(ReferenceCustomResiduePairIxn::VectorAngleTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));    
     for (auto& term : dihedrals)
         dihedralTerms.push_back(ReferenceCustomResiduePairIxn::DihedralTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
 }
@@ -162,19 +165,21 @@ void ReferenceCustomResiduePairIxn::calculatePairIxn(vector<Vec3>& atomCoordinat
 void ReferenceCustomResiduePairIxn::calculateOneIxn(int donor, int acceptor, vector<Vec3>& atomCoordinates,
                         map<string, double>& variables, vector<Vec3>& forces, double* totalEnergy) const {
 
-    int atoms[6];
+    int atoms[8];
     atoms[0] = acceptorAtoms[acceptor][0];
     atoms[1] = acceptorAtoms[acceptor][1];
     atoms[2] = acceptorAtoms[acceptor][2];
-    atoms[3] = donorAtoms[donor][0];
-    atoms[4] = donorAtoms[donor][1];
-    atoms[5] = donorAtoms[donor][2];
+    atoms[3] = acceptorAtoms[acceptor][3];
+    atoms[4] = donorAtoms[donor][0];
+    atoms[5] = donorAtoms[donor][1];
+    atoms[6] = donorAtoms[donor][2];
+    atoms[7] = donorAtoms[donor][3];
 
     // Compute the distance between the primary donor and acceptor atoms, and compare to the cutoff.
 
     if (cutoff) {
         double delta[ReferenceForce::LastDeltaRIndex];
-        computeDelta(atoms[0], atoms[3], delta, atomCoordinates);
+        computeDelta(atoms[0], atoms[4], delta, atomCoordinates);
         if (delta[ReferenceForce::RIndex] >= cutoffDistance)
             return;
     }
@@ -191,6 +196,15 @@ void ReferenceCustomResiduePairIxn::calculateOneIxn(int donor, int acceptor, vec
         computeDelta(atoms[term.p1], atoms[term.p2], term.delta1, atomCoordinates);
         computeDelta(atoms[term.p3], atoms[term.p2], term.delta2, atomCoordinates);
         variables[term.name] = computeAngle(term.delta1, term.delta2);
+    }
+    for (int i = 0; i < (int) vectorangleTerms.size(); i++) {
+        const VectorAngleTermInfo& term = vectorangleTerms[i];
+        computeDelta(atoms[term.p2], atoms[term.p1], term.delta1, atomCoordinates);
+        computeDelta(atoms[term.p2], atoms[term.p3], term.delta2, atomCoordinates);
+        computeDelta(atoms[term.p4], atoms[term.p3], term.delta3, atomCoordinates);
+        double dotDihedral, signOfDihedral;
+        double* crossProduct[] = {term.cross1, term.cross2};
+        variables[term.name] = getDihedralAngleBetweenThreeVectors(term.delta1, term.delta2, term.delta3, crossProduct, &dotDihedral, term.delta1, &signOfDihedral, 1);
     }
     for (int i = 0; i < (int) dihedralTerms.size(); i++) {
         const DihedralTermInfo& term = dihedralTerms[i];
@@ -242,6 +256,35 @@ void ReferenceCustomResiduePairIxn::calculateOneIxn(int donor, int acceptor, vec
     }
 
     // Apply forces based on dihedrals.
+
+      for (int i = 0; i < (int) vectorangleTerms.size(); i++) {
+        const VectorAngleTermInfo& term = vectorangleTerms[i];
+        double dEdTheta = term.forceExpression.evaluate(variables);
+        double internalF[4][3];
+        double forceFactors[4];
+        double normCross1 = DOT3(term.cross1, term.cross1);
+        double normBC = term.delta2[ReferenceForce::RIndex];
+        forceFactors[0] = (-dEdTheta*normBC)/normCross1;
+        double normCross2 = DOT3(term.cross2, term.cross2);
+        forceFactors[3] = (dEdTheta*normBC)/normCross2;
+        forceFactors[1] = DOT3(term.delta1, term.delta2);
+        forceFactors[1] /= term.delta2[ReferenceForce::R2Index];
+        forceFactors[2] = DOT3(term.delta3, term.delta2);
+        forceFactors[2] /= term.delta2[ReferenceForce::R2Index];
+        for (int i = 0; i < 3; i++) {
+          internalF[0][i] = forceFactors[0]*term.cross1[i];
+          internalF[3][i] = forceFactors[3]*term.cross2[i];
+          double s = forceFactors[1]*internalF[0][i] - forceFactors[2]*internalF[3][i];
+          internalF[1][i] = internalF[0][i] - s;
+          internalF[2][i] = internalF[3][i] + s;
+        }
+        for (int i = 0; i < 3; i++) {
+          forces[atoms[term.p1]][i] += internalF[0][i];
+          forces[atoms[term.p2]][i] -= internalF[1][i];
+          forces[atoms[term.p3]][i] -= internalF[2][i];
+          forces[atoms[term.p4]][i] += internalF[3][i];
+        }
+      }
 
     for (int i = 0; i < (int) dihedralTerms.size(); i++) {
         const DihedralTermInfo& term = dihedralTerms[i];

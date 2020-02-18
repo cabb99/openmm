@@ -1834,8 +1834,9 @@ void ReferenceCalcCustomResiduePairForceKernel::initialize(const System& system,
 
     map<string, vector<int> > distances;
     map<string, vector<int> > angles;
+    map<string, vector<int> > vectorangles;
     map<string, vector<int> > dihedrals;
-    Lepton::ParsedExpression energyExpression = CustomResiduePairForceImpl::prepareExpression(force, functions, distances, angles, dihedrals);
+    Lepton::ParsedExpression energyExpression = CustomResiduePairForceImpl::prepareExpression(force, functions, distances, angles, vectorangles, dihedrals);
     vector<string> donorParameterNames;
     vector<string> acceptorParameterNames;
     for (int i = 0; i < numDonorParameters; i++)
@@ -1844,7 +1845,7 @@ void ReferenceCalcCustomResiduePairForceKernel::initialize(const System& system,
         acceptorParameterNames.push_back(force.getPerAcceptorParameterName(i));
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         globalParameterNames.push_back(force.getGlobalParameterName(i));
-    ixn = new ReferenceCustomResiduePairIxn(donorParticles, acceptorParticles, energyExpression, donorParameterNames, acceptorParameterNames, distances, angles, dihedrals);
+    ixn = new ReferenceCustomResiduePairIxn(donorParticles, acceptorParticles, energyExpression, donorParameterNames, acceptorParameterNames, distances, angles, vectorangles, dihedrals);
     isPeriodic = (nonbondedMethod == CutoffPeriodic);
     if (nonbondedMethod != NoCutoff)
         ixn->setUseCutoff(nonbondedCutoff);
