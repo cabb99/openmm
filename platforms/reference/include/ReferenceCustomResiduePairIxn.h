@@ -193,9 +193,6 @@ public:
     Lepton::ExpressionProgram forceExpression;
     mutable double delta1[ReferenceForce::LastDeltaRIndex];
     mutable double delta2[ReferenceForce::LastDeltaRIndex];
-    mutable double delta3[ReferenceForce::LastDeltaRIndex];
-    mutable double cross1[3];
-    mutable double cross2[3];
     VectorAngleTermInfo(const std::string& name, const std::vector<int>& atoms, const Lepton::ExpressionProgram& forceExpression) :
             name(name), p1(atoms[0]), p2(atoms[1]), p3(atoms[2]), p4(atoms[3]), forceExpression(forceExpression) {
     }
