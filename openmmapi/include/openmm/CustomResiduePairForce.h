@@ -298,7 +298,7 @@ public:
      * @param parameters  the list of per-donor parameter values for the new donor
      * @return the index of the donor that was added
      */
-    int addDonor(int d1, int d2, int d3, const std::vector<double>& parameters=std::vector<double>());
+    int addDonor(int d1, int d2, int d3, int d4, const std::vector<double>& parameters=std::vector<double>());
     /**
      * Get the properties of a donor group.
      *
@@ -310,7 +310,7 @@ public:
      *                         less than three particles, this will be -1.
      * @param[out] parameters  the list of per-donor parameter values for the donor
      */
-    void getDonorParameters(int index, int& d1, int& d2, int& d3, std::vector<double>& parameters) const;
+    void getDonorParameters(int index, int& d1, int& d2, int& d3, int&d4, std::vector<double>& parameters) const;
     /**
      * Set the properties of a donor group.
      *
@@ -322,7 +322,7 @@ public:
      *                    less than three particles, this must be -1.
      * @param parameters  the list of per-donor parameter values for the donor
      */
-    void setDonorParameters(int index, int d1, int d2, int d3, const std::vector<double>& parameters=std::vector<double>());
+    void setDonorParameters(int index, int d1, int d2, int d3, int d4, const std::vector<double>& parameters=std::vector<double>());
     /**
      * Add an acceptor group to the force
      *
@@ -334,7 +334,7 @@ public:
      * @param parameters  the list of per-acceptor parameter values for the new acceptor
      * @return the index of the acceptor that was added
      */
-    int addAcceptor(int a1, int a2, int a3, const std::vector<double>& parameters=std::vector<double>());
+    int addAcceptor(int a1, int a2, int a3, int a4, const std::vector<double>& parameters=std::vector<double>());
     /**
      * Get the properties of an acceptor group.
      *
@@ -346,7 +346,7 @@ public:
      *                         less than three particles, this will be -1.
      * @param[out] parameters  the list of per-acceptor parameter values for the acceptor
      */
-    void getAcceptorParameters(int index, int& a1, int& a2, int& a3, std::vector<double>& parameters) const;
+    void getAcceptorParameters(int index, int& a1, int& a2, int& a3, int& a4, std::vector<double>& parameters) const;
     /**
      * Set the properties of an acceptor group.
      *
@@ -358,7 +358,7 @@ public:
      *                    less than three particles, this must be -1.
      * @param parameters  the list of per-acceptor parameter values for the acceptor
      */
-    void setAcceptorParameters(int index, int a1, int a2, int a3, const std::vector<double>& parameters=std::vector<double>());
+    void setAcceptorParameters(int index, int a1, int a2, int a3, int a4, const std::vector<double>& parameters=std::vector<double>());
     /**
      * Add a donor-acceptor pair to the list of interactions that should be excluded.
      *
@@ -482,11 +482,11 @@ private:
 class CustomResiduePairForce::GroupInfo {
 public:
     std::vector<double> parameters;
-    int p1, p2, p3;
-    GroupInfo() : p1(-1), p2(-1), p3(-1) {
+    int p1, p2, p3, p4;
+    GroupInfo() : p1(-1), p2(-1), p3(-1), p4(-1) {
     }
-    GroupInfo(int p1, int p2, int p3, const std::vector<double>& parameters) :
-        parameters(parameters), p1(p1), p2(p2), p3(p3) {
+    GroupInfo(int p1, int p2, int p3, int p4, const std::vector<double>& parameters) :
+        parameters(parameters), p1(p1), p2(p2), p3(p3), p4(p4) {
     }
 };
 

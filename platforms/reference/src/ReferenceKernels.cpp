@@ -1805,21 +1805,23 @@ void ReferenceCalcCustomResiduePairForceKernel::initialize(const System& system,
     int numDonorParameters = force.getNumPerDonorParameters();
     donorParamArray.resize(numDonors);
     for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3;
-        force.getDonorParameters(i, d1, d2, d3, donorParamArray[i]);
+        int d1, d2, d3, d4;
+        force.getDonorParameters(i, d1, d2, d3, d4, donorParamArray[i]);
         donorParticles[i].push_back(d1);
         donorParticles[i].push_back(d2);
         donorParticles[i].push_back(d3);
+        donorParticles[i].push_back(d4);
     }
     vector<vector<int> > acceptorParticles(numAcceptors);
     int numAcceptorParameters = force.getNumPerAcceptorParameters();
     acceptorParamArray.resize(numAcceptors);
     for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3;
-        force.getAcceptorParameters(i, a1, a2, a3, acceptorParamArray[i]);
+        int a1, a2, a3, a4;
+        force.getAcceptorParameters(i, a1, a2, a3, a4, acceptorParamArray[i]);
         acceptorParticles[i].push_back(a1);
         acceptorParticles[i].push_back(a2);
         acceptorParticles[i].push_back(a3);
+        acceptorParticles[i].push_back(a4);
     }
     NonbondedMethod nonbondedMethod = CalcCustomResiduePairForceKernel::NonbondedMethod(force.getNonbondedMethod());
     nonbondedCutoff = force.getCutoffDistance();
@@ -1881,9 +1883,9 @@ void ReferenceCalcCustomResiduePairForceKernel::copyParametersToContext(ContextI
     int numDonorParameters = force.getNumPerDonorParameters();
     const vector<vector<int> >& donorAtoms = ixn->getDonorAtoms();
     for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3;
-        force.getDonorParameters(i, d1, d2, d3, parameters);
-        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2])
+        int d1, d2, d3,d4;
+        force.getDonorParameters(i, d1, d2, d3,d4, parameters);
+        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2] || d4 != donorAtoms[i][3])
             throw OpenMMException("updateParametersInContext: The set of particles in a donor group has changed");
         for (int j = 0; j < numDonorParameters; j++)
             donorParamArray[i][j] = parameters[j];
@@ -1891,9 +1893,9 @@ void ReferenceCalcCustomResiduePairForceKernel::copyParametersToContext(ContextI
     int numAcceptorParameters = force.getNumPerAcceptorParameters();
     const vector<vector<int> >& acceptorAtoms = ixn->getAcceptorAtoms();
     for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3;
-        force.getAcceptorParameters(i, a1, a2, a3, parameters);
-        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2])
+        int a1, a2, a3,a4;
+        force.getAcceptorParameters(i, a1, a2, a3,a4, parameters);
+        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2] || a4 != acceptorAtoms[i][3])
             throw OpenMMException("updateParametersInContext: The set of particles in an acceptor group has changed");
         for (int j = 0; j < numAcceptorParameters; j++)
             acceptorParamArray[i][j] = parameters[j];

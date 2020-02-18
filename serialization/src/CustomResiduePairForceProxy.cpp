@@ -62,9 +62,9 @@ void CustomResiduePairForceProxy::serialize(const void* object, SerializationNod
     }
     SerializationNode& donors = node.createChildNode("Donors");
     for (int i = 0; i < force.getNumDonors(); i++) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> params;
-        force.getDonorParameters(i, p1, p2, p3, params);
+        force.getDonorParameters(i, p1, p2, p3, p4, params);
         SerializationNode& node = donors.createChildNode("Donor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
@@ -75,9 +75,9 @@ void CustomResiduePairForceProxy::serialize(const void* object, SerializationNod
     }
     SerializationNode& acceptors = node.createChildNode("Acceptors");
     for (int i = 0; i < force.getNumAcceptors(); i++) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> params;
-        force.getAcceptorParameters(i, p1, p2, p3, params);
+        force.getAcceptorParameters(i, p1, p2, p3, p4, params);
         SerializationNode& node = acceptors.createChildNode("Acceptor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
@@ -124,7 +124,7 @@ void* CustomResiduePairForceProxy::deserialize(const SerializationNode& node) co
                 key << j+1;
                 params[j] = donor.getDoubleProperty(key.str());
             }
-            force->addDonor(donor.getIntProperty("p1"), donor.getIntProperty("p2"), donor.getIntProperty("p3"), params);
+            force->addDonor(donor.getIntProperty("p1"), donor.getIntProperty("p2"), donor.getIntProperty("p3"), donor.getIntProperty("p4"), params);
         }
         const SerializationNode& acceptors = node.getChildNode("Acceptors");
         params.resize(force->getNumPerAcceptorParameters());
@@ -135,7 +135,7 @@ void* CustomResiduePairForceProxy::deserialize(const SerializationNode& node) co
                 key << j+1;
                 params[j] = acceptor.getDoubleProperty(key.str());
             }
-            force->addAcceptor(acceptor.getIntProperty("p1"), acceptor.getIntProperty("p2"), acceptor.getIntProperty("p3"), params);
+            force->addAcceptor(acceptor.getIntProperty("p1"), acceptor.getIntProperty("p2"), acceptor.getIntProperty("p3"), acceptor.getIntProperty("p4"), params);
         }
         const SerializationNode& exclusions = node.getChildNode("Exclusions");
         for (auto& exclusion : exclusions.getChildren())

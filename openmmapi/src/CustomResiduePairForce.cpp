@@ -137,45 +137,49 @@ void CustomResiduePairForce::setGlobalParameterDefaultValue(int index, double de
     globalParameters[index].defaultValue = defaultValue;
 }
 
-int CustomResiduePairForce::addDonor(int d1, int d2, int d3, const vector<double>& parameters) {
-    donors.push_back(GroupInfo(d1, d2, d3, parameters));
+int CustomResiduePairForce::addDonor(int d1, int d2, int d3, int d4, const vector<double>& parameters) {
+    donors.push_back(GroupInfo(d1, d2, d3, d4, parameters));
     return donors.size()-1;
 }
 
-void CustomResiduePairForce::getDonorParameters(int index, int& d1, int& d2, int&  d3, std::vector<double>& parameters) const {
+void CustomResiduePairForce::getDonorParameters(int index, int& d1, int& d2, int&  d3, int&  d4, std::vector<double>& parameters) const {
     ASSERT_VALID_INDEX(index, donors);
     d1 = donors[index].p1;
     d2 = donors[index].p2;
     d3 = donors[index].p3;
+    d4 = donors[index].p4;
     parameters = donors[index].parameters;
 }
 
-void CustomResiduePairForce::setDonorParameters(int index, int d1, int d2, int d3, const vector<double>& parameters) {
+void CustomResiduePairForce::setDonorParameters(int index, int d1, int d2, int d3, int d4, const vector<double>& parameters) {
     ASSERT_VALID_INDEX(index, donors);
     donors[index].p1 = d1;
     donors[index].p2 = d2;
     donors[index].p3 = d3;
+    donors[index].p4 = d4;
     donors[index].parameters = parameters;
 }
 
-int CustomResiduePairForce::addAcceptor(int a1, int a2, int a3, const vector<double>& parameters) {
-    acceptors.push_back(GroupInfo(a1, a2, a3, parameters));
+int CustomResiduePairForce::addAcceptor(int a1, int a2, int a3, int a4, const vector<double>& parameters) {
+    acceptors.push_back(GroupInfo(a1, a2, a3, a4, parameters));
     return acceptors.size()-1;
 }
 
-void CustomResiduePairForce::getAcceptorParameters(int index, int& a1, int& a2, int& a3, std::vector<double>& parameters) const {
+void CustomResiduePairForce::getAcceptorParameters(int index, int& a1, int& a2, int& a3, int& a4, std::vector<double>& parameters) const {
     ASSERT_VALID_INDEX(index, acceptors);
     a1 = acceptors[index].p1;
     a2 = acceptors[index].p2;
     a3 = acceptors[index].p3;
+    a4 = acceptors[index].p4;
     parameters = acceptors[index].parameters;
 }
 
-void CustomResiduePairForce::setAcceptorParameters(int index, int a1, int a2, int a3, const vector<double>& parameters) {
+void CustomResiduePairForce::setAcceptorParameters(int index, int a1, int a2, int a3, int a4, const vector<double>& parameters) {
     ASSERT_VALID_INDEX(index, acceptors);
     acceptors[index].p1 = a1;
     acceptors[index].p2 = a2;
     acceptors[index].p3 = a3;
+    acceptors[index].p4 = a4;
     acceptors[index].parameters = parameters;
 }
 

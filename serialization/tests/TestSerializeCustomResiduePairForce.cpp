@@ -52,9 +52,9 @@ void testSerialization() {
     force.addPerAcceptorParameter("q");
     vector<double> params(1);
     params[0] = 1.0;
-    force.addDonor(0, 1, 2, params);
+    force.addDonor(0, 1, 2,-1, params);
     params[0] = -3.3;
-    force.addDonor(5, 4, 3, params);
+    force.addDonor(5, 4, 3,-1, params);
     params.resize(2);
     params[0] = 2.1;
     params[1] = 3.3;

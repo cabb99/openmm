@@ -4392,52 +4392,60 @@ public:
         return force.getNumDonors()+force.getNumAcceptors()+force.getNumExclusions();
     }
     void getParticlesInGroup(int index, vector<int>& particles) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> parameters;
         if (index < force.getNumDonors()) {
-            force.getDonorParameters(index, p1, p2, p3, parameters);
+            force.getDonorParameters(index, p1, p2, p3, p4, parameters);
             particles.clear();
             particles.push_back(p1);
             if (p2 > -1)
                 particles.push_back(p2);
             if (p3 > -1)
                 particles.push_back(p3);
+            if (p4 > -1)
+                particles.push_back(p4);
             return;
         }
         index -= force.getNumDonors();
         if (index < force.getNumAcceptors()) {
-            force.getAcceptorParameters(index, p1, p2, p3, parameters);
+            force.getAcceptorParameters(index, p1, p2, p3, p4, parameters);
             particles.clear();
             particles.push_back(p1);
             if (p2 > -1)
                 particles.push_back(p2);
             if (p3 > -1)
                 particles.push_back(p3);
+            if (p4 > -1)
+                particles.push_back(p4);
             return;
         }
         index -= force.getNumAcceptors();
         int donor, acceptor;
         force.getExclusionParticles(index, donor, acceptor);
         particles.clear();
-        force.getDonorParameters(donor, p1, p2, p3, parameters);
+        force.getDonorParameters(donor, p1, p2, p3, p4, parameters);
         particles.push_back(p1);
         if (p2 > -1)
             particles.push_back(p2);
         if (p3 > -1)
             particles.push_back(p3);
-        force.getAcceptorParameters(acceptor, p1, p2, p3, parameters);
+        if (p4 > -1)
+          particles.push_back(p4);
+        force.getAcceptorParameters(acceptor, p1, p2, p3, p4, parameters);
         particles.push_back(p1);
         if (p2 > -1)
             particles.push_back(p2);
         if (p3 > -1)
             particles.push_back(p3);
+        if (p4 > -1)
+            particles.push_back(p4);
     }
     bool areGroupsIdentical(int group1, int group2) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> params1, params2;
         if (group1 < force.getNumDonors() && group2 < force.getNumDonors()) {
-            force.getDonorParameters(group1, p1, p2, p3, params1);
-            force.getDonorParameters(group2, p1, p2, p3, params2);
+            force.getDonorParameters(group1, p1, p2, p3, p4, params1);
+            force.getDonorParameters(group2, p1, p2, p3, p4, params2);
             return (params1 == params2 && params1 == params2);
         }
         if (group1 < force.getNumDonors() || group2 < force.getNumDonors())
@@ -4445,8 +4453,8 @@ public:
         group1 -= force.getNumDonors();
         group2 -= force.getNumDonors();
         if (group1 < force.getNumAcceptors() && group2 < force.getNumAcceptors()) {
-            force.getAcceptorParameters(group1, p1, p2, p3, params1);
-            force.getAcceptorParameters(group2, p1, p2, p3, params2);
+            force.getAcceptorParameters(group1, p1, p2, p3, p4, params1);
+            force.getAcceptorParameters(group2, p1, p2, p3, p4, params2);
             return (params1 == params2 && params1 == params2);
         }
         if (group1 < force.getNumAcceptors() || group2 < force.getNumAcceptors())
@@ -4501,7 +4509,7 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
     vector<mm_int4> donorVector(numDonors);
     for (int i = 0; i < numDonors; i++) {
         vector<double> parameters;
-        force.getDonorParameters(startIndex+i, donorVector[i].x, donorVector[i].y, donorVector[i].z, parameters);
+        force.getDonorParameters(startIndex+i, donorVector[i].x, donorVector[i].y, donorVector[i].z, donorVector[i].w, parameters);
         donorParamVector[i].resize(parameters.size());
         for (int j = 0; j < (int) parameters.size(); j++)
             donorParamVector[i][j] = (float) parameters[j];
@@ -4512,7 +4520,7 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
     vector<mm_int4> acceptorVector(numAcceptors);
     for (int i = 0; i < numAcceptors; i++) {
         vector<double> parameters;
-        force.getAcceptorParameters(i, acceptorVector[i].x, acceptorVector[i].y, acceptorVector[i].z, parameters);
+        force.getAcceptorParameters(i, acceptorVector[i].x, acceptorVector[i].y, acceptorVector[i].z, donorVector[i].w, parameters);
         acceptorParamVector[i].resize(parameters.size());
         for (int j = 0; j < (int) parameters.size(); j++)
             acceptorParamVector[i][j] = (float) parameters[j];
@@ -4531,12 +4539,14 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         for (int i = 0; i < numDonors; i++)
             donorBufferVector[i] = mm_int4(donorVector[i].x > -1 ? donorBufferCounter[donorVector[i].x]++ : 0,
                                            donorVector[i].y > -1 ? donorBufferCounter[donorVector[i].y]++ : 0,
-                                           donorVector[i].z > -1 ? donorBufferCounter[donorVector[i].z]++ : 0, 0);
+                                           donorVector[i].z > -1 ? donorBufferCounter[donorVector[i].z]++ : 0,
+                                           donorVector[i].w > -1 ? donorBufferCounter[donorVector[i].w]++ : 0);
         vector<int> acceptorBufferCounter(numParticles, 0);
         for (int i = 0; i < numAcceptors; i++)
             acceptorBufferVector[i] = mm_int4(acceptorVector[i].x > -1 ? acceptorBufferCounter[acceptorVector[i].x]++ : 0,
                                            acceptorVector[i].y > -1 ? acceptorBufferCounter[acceptorVector[i].y]++ : 0,
-                                           acceptorVector[i].z > -1 ? acceptorBufferCounter[acceptorVector[i].z]++ : 0, 0);
+                                           acceptorVector[i].z > -1 ? acceptorBufferCounter[acceptorVector[i].z]++ : 0,
+                                              acceptorVector[i].w > -1 ? acceptorBufferCounter[acceptorVector[i].w]++ : 0);
         donorBufferIndices.upload(donorBufferVector);
         acceptorBufferIndices.upload(acceptorBufferVector);
         int maxBuffers = 1;
@@ -4643,8 +4653,8 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
     map<string, Lepton::ParsedExpression> forceExpressions;
     set<string> computedDeltas;
     computedDeltas.insert("D1A1");
-    string atomNames[] = {"A1", "A2", "A3", "D1", "D2", "D3"};
-    string atomNamesLower[] = {"a1", "a2", "a3", "d1", "d2", "d3"};
+    string atomNames[] = {"A1", "A2", "A3", "A4",  "D1", "D2", "D3", "D4"};
+    string atomNamesLower[] = {"a1", "a2", "a3", "a4", "d1", "d2", "d3", "d4"};
     stringstream computeDonor, computeAcceptor, extraArgs;
     int index = 0;
     for (auto& distance : distances) {
@@ -4928,8 +4938,8 @@ void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl
         vector<vector<float> > donorParamVector(numDonors);
         vector<double> parameters;
         for (int i = 0; i < numDonors; i++) {
-            int d1, d2, d3;
-            force.getDonorParameters(startIndex+i, d1, d2, d3, parameters);
+            int d1, d2, d3, d4;
+            force.getDonorParameters(startIndex+i, d1, d2, d3, d4, parameters);
             donorParamVector[i].resize(parameters.size());
             for (int j = 0; j < (int) parameters.size(); j++)
                 donorParamVector[i][j] = (float) parameters[j];
@@ -4943,8 +4953,8 @@ void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl
         vector<vector<float> > acceptorParamVector(numAcceptors);
         vector<double> parameters;
         for (int i = 0; i < numAcceptors; i++) {
-            int a1, a2, a3;
-            force.getAcceptorParameters(i, a1, a2, a3, parameters);
+            int a1, a2, a3, a4;
+            force.getAcceptorParameters(i, a1, a2, a3, a4, parameters);
             acceptorParamVector[i].resize(parameters.size());
             for (int j = 0; j < (int) parameters.size(); j++)
                 acceptorParamVector[i][j] = (float) parameters[j];

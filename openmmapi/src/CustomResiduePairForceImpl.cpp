@@ -87,8 +87,8 @@ void CustomResiduePairForceImpl::initialize(ContextImpl& context) {
     vector<double> parameters;
     int numDonorParameters = owner.getNumPerDonorParameters();
     for (int i = 0; i < owner.getNumDonors(); i++) {
-        int d1, d2, d3;
-        owner.getDonorParameters(i, d1, d2, d3, parameters);
+        int d1, d2, d3, d4;
+        owner.getDonorParameters(i, d1, d2, d3, d4, parameters);
         if (d1 < 0 || d1 >= system.getNumParticles()) {
             stringstream msg;
             msg << "CustomResiduePairForce: Illegal particle index for a donor: ";
@@ -107,6 +107,12 @@ void CustomResiduePairForceImpl::initialize(ContextImpl& context) {
             msg << d3;
             throw OpenMMException(msg.str());
         }
+        if (d4 < -1 || d4 >= system.getNumParticles()) {
+          stringstream msg;
+          msg << "CustomResiduePairForce: Illegal particle index for a donor: ";
+          msg << d4;
+          throw OpenMMException(msg.str());
+        }
         if (parameters.size() != numDonorParameters) {
             stringstream msg;
             msg << "CustomResiduePairForce: Wrong number of parameters for donor ";
@@ -116,8 +122,8 @@ void CustomResiduePairForceImpl::initialize(ContextImpl& context) {
     }
     int numAcceptorParameters = owner.getNumPerAcceptorParameters();
     for (int i = 0; i < owner.getNumAcceptors(); i++) {
-        int a1, a2, a3;
-        owner.getAcceptorParameters(i, a1, a2, a3, parameters);
+        int a1, a2, a3, a4;
+        owner.getAcceptorParameters(i, a1, a2, a3, a4,parameters);
         if (a1 < 0 || a1 >= system.getNumParticles()) {
             stringstream msg;
             msg << "CustomResiduePairForce: Illegal particle index for an acceptor: ";
@@ -131,10 +137,16 @@ void CustomResiduePairForceImpl::initialize(ContextImpl& context) {
             throw OpenMMException(msg.str());
         }
         if (a3 < -1 || a3 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomResiduePairForce: Illegal particle index for an acceptor: ";
-            msg << a3;
-            throw OpenMMException(msg.str());
+          stringstream msg;
+          msg << "CustomResiduePairForce: Illegal particle index for an acceptor: ";
+          msg << a3;
+          throw OpenMMException(msg.str());
+        }
+        if (a4 < -1 || a4 >= system.getNumParticles()) {
+          stringstream msg;
+          msg << "CustomResiduePairForce: Illegal particle index for an acceptor: ";
+          msg << a4;
+          throw OpenMMException(msg.str());
         }
         if (parameters.size() != numAcceptorParameters) {
             stringstream msg;
