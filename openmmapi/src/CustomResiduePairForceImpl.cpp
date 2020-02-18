@@ -263,7 +263,7 @@ ExpressionTreeNode CustomResiduePairForceImpl::replaceFunctions(const Expression
         variable << "distance";
     else if (numArgs == 3)
         variable << "angle";
-    else if ((op.getName() == "vectorangle") and (numArgs == 4))
+    else if (op.getName() == "vectorangle")
         variable << "vectorangle";
     else
         variable << "dihedral";
@@ -274,7 +274,7 @@ ExpressionTreeNode CustomResiduePairForceImpl::replaceFunctions(const Expression
         distances[name] = indices;
     else if (numArgs == 3)
         angles[name] = indices;
-    else if ((op.getName() == "vectorangle") and (numArgs == 4))
+    else if (op.getName() == "vectorangle")
         vectorangles[name] = indices;
     else
         dihedrals[name] = indices;
