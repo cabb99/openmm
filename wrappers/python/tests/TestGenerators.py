@@ -132,7 +132,7 @@ class TestGenerators(unittest.TestCase):
                 self.assertTrue((atom1, atom2, atom3, atom4) in expectedDonors)
                 self.assertEqual((3.0,), params)
             for i in range(residuepair.getNumAcceptors()):
-                atom1, atom2, atom3, atom4 params = residuepair.getAcceptorParameters(i)
+                atom1, atom2, atom3, atom4, params = residuepair.getAcceptorParameters(i)
                 self.assertTrue((atom1, atom2, atom3, atom4) in expectedAcceptors)
                 self.assertEqual((2.0,), params)
             expectedExclusions = [(0,0), (1,1)]
