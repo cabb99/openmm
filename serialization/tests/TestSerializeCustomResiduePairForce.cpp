@@ -58,10 +58,10 @@ void testSerialization() {
     params.resize(2);
     params[0] = 2.1;
     params[1] = 3.3;
-    force.addAcceptor(1, 0, -1, params);
+    force.addAcceptor(1, 0, -1, -1, params);
     params[0] = -1;
     params[1] = -1.1;
-    force.addAcceptor(2, 3, -1, params);
+    force.addAcceptor(2, 3, -1, -1, params);
     force.addExclusion(0, 1);
     force.addExclusion(1, 2);
     vector<double> values(10);
