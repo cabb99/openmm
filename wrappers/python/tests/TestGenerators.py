@@ -123,17 +123,17 @@ class TestGenerators(unittest.TestCase):
             self.assertEqual('a', residuepair.getPerDonorParameterName(0))
             self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
             self.assertEqual(1, residuepair.getNumTabulatedFunctions())
-            expectedDonors = [(4,6,7), (14,16,17)]
-            expectedAcceptors = [(4,5,-1), (14,15,-1)]
+            expectedDonors = [(4,6,7,-1), (14,16,17,-1)]
+            expectedAcceptors = [(4,5,-1,-1), (14,15,-1,-1)]
             self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
             self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
             for i in range(residuepair.getNumDonors()):
-                atom1, atom2, atom3, params = residuepair.getDonorParameters(i)
-                self.assertTrue((atom1, atom2, atom3) in expectedDonors)
+                atom1, atom2, atom3, atom4, params = residuepair.getDonorParameters(i)
+                self.assertTrue((atom1, atom2, atom3, atom4) in expectedDonors)
                 self.assertEqual((3.0,), params)
             for i in range(residuepair.getNumAcceptors()):
-                atom1, atom2, atom3, params = residuepair.getAcceptorParameters(i)
-                self.assertTrue((atom1, atom2, atom3) in expectedAcceptors)
+                atom1, atom2, atom3, atom4 params = residuepair.getAcceptorParameters(i)
+                self.assertTrue((atom1, atom2, atom3, atom4) in expectedAcceptors)
                 self.assertEqual((2.0,), params)
             expectedExclusions = [(0,0), (1,1)]
             if bondCutoff >= 2:
@@ -159,22 +159,25 @@ class TestGenerators(unittest.TestCase):
 </ForceField>"""
         ff = ForceField('amber99sb.xml', StringIO(xml))
         system = ff.createSystem(self.pdb1.topology)
-        residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
+        try:
+            residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
+        except IndexError as e:
+            raise IndexError(f.type)
         self.assertEqual(1, residuepair.getNumPerDonorParameters())
         self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
         self.assertEqual('a', residuepair.getPerDonorParameterName(0))
         self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
-        expectedDonors = [(6,7,-1), (16,17,-1)]
-        expectedAcceptors = [(5,-1,-1), (15,-1,-1)]
+        expectedDonors = [(6,7,-1,-1), (16,17,-1,-1)]
+        expectedAcceptors = [(5,-1,-1,-1), (15,-1,-1,-1)]
         self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
         self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
         for i in range(residuepair.getNumDonors()):
-            atom1, atom2, atom3, params = residuepair.getDonorParameters(i)
-            self.assertTrue((atom1, atom2, atom3) in expectedDonors)
+            atom1, atom2, atom3, atom4, params = residuepair.getDonorParameters(i)
+            self.assertTrue((atom1, atom2, atom3, atom4) in expectedDonors)
             self.assertEqual((3.0,), params)
         for i in range(residuepair.getNumAcceptors()):
-            atom1, atom2, atom3, params = residuepair.getAcceptorParameters(i)
-            self.assertTrue((atom1, atom2, atom3) in expectedAcceptors)
+            atom1, atom2, atom3, atom4, params = residuepair.getAcceptorParameters(i)
+            self.assertTrue((atom1, atom2, atom3, atom4) in expectedAcceptors)
             self.assertEqual((2.0,), params)
 
 
