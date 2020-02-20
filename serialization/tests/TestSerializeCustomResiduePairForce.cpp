@@ -95,26 +95,28 @@ void testSerialization() {
     }
     ASSERT_EQUAL(force.getNumDonors(), force2.getNumDonors());
     for (int i = 0; i < force.getNumDonors(); i++) {
-        int a1, b1, c1, a2, b2, c2;
+        int a1, b1, c1, d1, a2, b2, c2, d2;
         vector<double> params1, params2;
-        force.getDonorParameters(i, a1, b1, c1, params1);
-        force2.getDonorParameters(i, a2, b2, c2, params2);
+        force.getDonorParameters(i, a1, b1, c1, d1, params1);
+        force2.getDonorParameters(i, a2, b2, c2,d2, params2);
         ASSERT_EQUAL(a1, a2);
         ASSERT_EQUAL(b1, b2);
         ASSERT_EQUAL(c1, c2);
+        ASSERT_EQUAL(d1, d2);
         ASSERT_EQUAL(params1.size(), params2.size());
         for (int j = 0; j < (int) params1.size(); j++)
             ASSERT_EQUAL(params1[j], params2[j]);
     }
     ASSERT_EQUAL(force.getNumAcceptors(), force2.getNumAcceptors());
     for (int i = 0; i < force.getNumAcceptors(); i++) {
-        int a1, b1, c1, a2, b2, c2;
+        int a1, b1, c1, d1, a2, b2, c2, d2;
         vector<double> params1, params2;
-        force.getAcceptorParameters(i, a1, b1, c1, params1);
-        force2.getAcceptorParameters(i, a2, b2, c2, params2);
+        force.getAcceptorParameters(i, a1, b1, c1, d1, params1);
+        force2.getAcceptorParameters(i, a2, b2, c2, d2, params2);
         ASSERT_EQUAL(a1, a2);
         ASSERT_EQUAL(b1, b2);
         ASSERT_EQUAL(c1, c2);
+        ASSERT_EQUAL(d1, d2);
         ASSERT_EQUAL(params1.size(), params2.size());
         for (int j = 0; j < (int) params1.size(); j++)
             ASSERT_EQUAL(params1[j], params2[j]);
