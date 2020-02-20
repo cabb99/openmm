@@ -65,7 +65,7 @@ void CustomResiduePairForceProxy::serialize(const void* object, SerializationNod
         int p1, p2, p3, p4;
         vector<double> params;
         force.getDonorParameters(i, p1, p2, p3, p4, params);
-        SerializationNode& node = donors.createChildNode("Donor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
+        SerializationNode& node = donors.createChildNode("Donor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3).setIntProperty("p4", p4);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
             key << "param";
@@ -78,7 +78,7 @@ void CustomResiduePairForceProxy::serialize(const void* object, SerializationNod
         int p1, p2, p3, p4;
         vector<double> params;
         force.getAcceptorParameters(i, p1, p2, p3, p4, params);
-        SerializationNode& node = acceptors.createChildNode("Acceptor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
+        SerializationNode& node = acceptors.createChildNode("Acceptor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3).setIntProperty("p4", p4);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
             key << "param";

@@ -72,6 +72,7 @@ void testSerialization() {
     // Serialize and then deserialize it.
 
     stringstream buffer;
+
     XmlSerializer::serialize<CustomResiduePairForce>(&force, "Force", buffer);
     CustomResiduePairForce* copy = XmlSerializer::deserialize<CustomResiduePairForce>(buffer);
 
