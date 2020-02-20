@@ -4473,19 +4473,14 @@ CommonCalcCustomResiduePairForceKernel::~CommonCalcCustomResiduePairForceKernel(
         delete acceptorParams;
 }
 
-//static void addDonorAndAcceptorCode(stringstream& computeDonor, stringstream& computeAcceptor, const string& value) {
-//    computeDonor << value;
-//    computeAcceptor << value;
-//}
-
-//static void applyDonorAndAcceptorForces(stringstream& applyToDonor, stringstream& applyToAcceptor, int atom, const string& value, bool trim=true) {
-//    string forceNames[] = {"f1", "f2", "f3"};
-//    string toAdd = (trim ? "trimTo3("+value+")" : value);
-//    if (atom < 3)
-//        applyToAcceptor << forceNames[atom]<<" += "<<toAdd<<";\n";
-//    else
-//        applyToDonor << forceNames[atom-3]<<" += "<<toAdd<<";\n";
-//}
+static void applyDonorAndAcceptorForces4(stringstream& applyToDonor, stringstream& applyToAcceptor, int atom, const string& value, bool trim=true) {
+  string forceNames[] = {"f1", "f2", "f3", "f4"};
+  string toAdd = (trim ? "trimTo3("+value+")" : value);
+  if (atom < 4)
+    applyToAcceptor << forceNames[atom]<<" += "<<toAdd<<";\n";
+  else
+    applyToDonor << forceNames[atom-4]<<" += "<<toAdd<<";\n";
+}
 
 void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
     // Record the lists of donors and acceptors, and the parameters for each one.
@@ -4661,7 +4656,7 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         const vector<int>& atoms = distance.second;
         string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
         if (computedDeltas.count(deltaName) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName+" = delta("+atomNamesLower[atoms[0]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName+" = crp_delta("+atomNamesLower[atoms[0]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName);
         }
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real r_"+deltaName+" = SQRT(delta"+deltaName+".w);\n");
@@ -4676,14 +4671,14 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         string deltaName2 = atomNames[atoms[1]]+atomNames[atoms[2]];
         string angleName = "angle_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]];
         if (computedDeltas.count(deltaName1) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[0]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = crp_delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[0]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName1);
         }
         if (computedDeltas.count(deltaName2) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[2]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = crp_delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[2]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName2);
         }
-        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+angleName+" = computeAngle(delta"+deltaName1+", delta"+deltaName2+");\n");
+        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+angleName+" = crp_computeAngle(delta"+deltaName1+", delta"+deltaName2+");\n");
         variables[angle.first] = angleName;
         forceExpressions["real dEdAngle"+cc.intToString(index)+" = "] = energyExpression.differentiate(angle.first).optimize();
         index++;
@@ -4695,14 +4690,14 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
     string deltaName2 = atomNames[atoms[2]]+atomNames[atoms[3]];
     string angleName = "vectorangle_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]]+atomNames[atoms[3]];
     if (computedDeltas.count(deltaName1) == 0) {
-      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[0]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = crp_delta("+atomNamesLower[atoms[1]]+", "+atomNamesLower[atoms[0]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
       computedDeltas.insert(deltaName1);
     }
     if (computedDeltas.count(deltaName2) == 0) {
-      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[3]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = crp_delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[3]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
       computedDeltas.insert(deltaName2);
     }
-    addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+angleName+" = computeAngle(delta"+deltaName1+", delta"+deltaName2+");\n");
+    addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+angleName+" = crp_computeAngle(delta"+deltaName1+", delta"+deltaName2+");\n");
     variables[vectorangle.first] = angleName;
     forceExpressions["real dEdAngle"+cc.intToString(index)+" = "] = energyExpression.differentiate(vectorangle.first).optimize();
     index++;
@@ -4717,20 +4712,20 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
         string dihedralName = "dihedral_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]]+atomNames[atoms[3]];
         if (computedDeltas.count(deltaName1) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = delta("+atomNamesLower[atoms[0]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName1+" = crp_delta("+atomNamesLower[atoms[0]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName1);
         }
         if (computedDeltas.count(deltaName2) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName2+" = crp_delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[1]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName2);
         }
         if (computedDeltas.count(deltaName3) == 0) {
-            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName3+" = delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[3]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
+            addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 delta"+deltaName3+" = crp_delta("+atomNamesLower[atoms[2]]+", "+atomNamesLower[atoms[3]]+", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n");
             computedDeltas.insert(deltaName3);
         }
-        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 "+crossName1+" = computeCross(delta"+deltaName1+", delta"+deltaName2+");\n");
-        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 "+crossName2+" = computeCross(delta"+deltaName2+", delta"+deltaName3+");\n");
-        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+dihedralName+" = computeAngle("+crossName1+", "+crossName2+");\n");
+        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 "+crossName1+" = crp_computeCross(delta"+deltaName1+", delta"+deltaName2+");\n");
+        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 "+crossName2+" = crp_computeCross(delta"+deltaName2+", delta"+deltaName3+");\n");
+        addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real "+dihedralName+" = crp_computeAngle("+crossName1+", "+crossName2+");\n");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, dihedralName+" *= (delta"+deltaName1+".x*"+crossName2+".x + delta"+deltaName1+".y*"+crossName2+".y + delta"+deltaName1+".z*"+crossName2+".z < 0 ? -1 : 1);\n");
         variables[dihedral.first] = dihedralName;
         forceExpressions["real dEdDihedral"+cc.intToString(index)+" = "] = energyExpression.differentiate(dihedral.first).optimize();
@@ -4765,8 +4760,8 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         const vector<int>& atoms = distance.second;
         string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
         string value = "(dEdDistance"+cc.intToString(index)+"/r_"+deltaName+")*delta"+deltaName;
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[0], "-"+value);
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[1], value);
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[0], "-"+value);
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[1], value);
         index++;
     }
     index = 0;
@@ -4780,9 +4775,9 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross0 = -cross(trimTo3(delta"+deltaName1+"), crossProd)*dEdAngle"+cc.intToString(index)+"/(delta"+deltaName1+".w*lengthCross);\n");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross2 = cross(trimTo3(delta"+deltaName2+"), crossProd)*dEdAngle"+cc.intToString(index)+"/(delta"+deltaName2+".w*lengthCross);\n");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross1 = -(deltaCross0+deltaCross2);\n");
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[0], "deltaCross0", false);
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[1], "deltaCross1", false);
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[2], "deltaCross2", false);
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[0], "deltaCross0", false);
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[1], "deltaCross1", false);
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[2], "deltaCross2", false);
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "}\n");
         index++;
     }
@@ -4797,11 +4792,11 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
       addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross0 = -cross(trimTo3(delta"+deltaName1+"), crossProd)*dEdAngle"+cc.intToString(index)+"/(delta"+deltaName1+".w*lengthCross);\n");
       addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross3 = cross(trimTo3(delta"+deltaName2+"), crossProd)*dEdAngle"+cc.intToString(index)+"/(delta"+deltaName2+".w*lengthCross);\n");
       addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross1 = -deltaCross0;\n");
-      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross3 = -deltaCross2;\n");
-      applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[0], "deltaCross0", false);
-      applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[1], "deltaCross1", false);
-      applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[2], "deltaCross2", false);
-      applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[3], "deltaCross3", false);
+      addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real3 deltaCross2 = -deltaCross3;\n");
+      applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[0], "deltaCross0", false);
+      applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[1], "deltaCross1", false);
+      applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[2], "deltaCross2", false);
+      applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[3], "deltaCross3", false);
       addDonorAndAcceptorCode(computeDonor, computeAcceptor, "}\n");
       index++;
     }
@@ -4823,10 +4818,10 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 internalF0 = ff.x*"+crossName1+";\n");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 internalF3 = ff.w*"+crossName2+";\n");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "real4 s = ff.y*internalF0 - ff.z*internalF3;\n");
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[0], "internalF0");
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[1], "s-internalF0");
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[2], "-s-internalF3");
-        applyDonorAndAcceptorForces(computeDonor, computeAcceptor, atoms[3], "internalF3");
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[0], "internalF0");
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[1], "s-internalF0");
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[2], "-s-internalF3");
+        applyDonorAndAcceptorForces4(computeDonor, computeAcceptor, atoms[3], "internalF3");
         addDonorAndAcceptorCode(computeDonor, computeAcceptor, "}\n");
         index++;
     }
@@ -4851,9 +4846,16 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         defines["USE_PERIODIC"] = "1";
     if (force.getNumExclusions() > 0)
         defines["USE_EXCLUSIONS"] = "1";
+//    for (auto & r: replacements) {
+//      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
+//    }
+//    for (auto & r: defines) {
+//      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
+//    }
     ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customResiduePairForce, replacements), defines);
-    donorKernel = program->createKernel("computeDonorForces");
-    acceptorKernel = program->createKernel("computeAcceptorForces");
+
+    donorKernel = program->createKernel("crp_computeDonorForces");
+    acceptorKernel = program->createKernel("crp_computeAcceptorForces");
 }
 
 double CommonCalcCustomResiduePairForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {

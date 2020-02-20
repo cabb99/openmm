@@ -143,103 +143,6 @@ void testResiduePair() {
     ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
 }
 
-void testResiduePair2() {
-  // Create a system using a CustomResiduePairForce.
-
-  System customSystem;
-  customSystem.addParticle(1.0);
-  customSystem.addParticle(1.0);
-  customSystem.addParticle(1.0);
-  customSystem.addParticle(1.0);
-  customSystem.addParticle(1.0);
-  CustomResiduePairForce* custom = new CustomResiduePairForce("0.5*kr*(distance(d1,a1)-r0)^2 + 0.5*ktheta*(angle(a1,d1,d2)-theta0)^2 + 0.5*kpsi*(angle(d1,a1,a2)-psi0)^2 + kchi*(1+cos(n*dihedral(a3,a2,a1,d1)-chi0))");
-  custom->addPerDonorParameter("r0");
-  custom->addPerDonorParameter("theta0");
-  custom->addPerDonorParameter("psi0");
-  custom->addPerAcceptorParameter("chi0");
-  custom->addPerAcceptorParameter("n");
-  custom->addGlobalParameter("kr", 0.4);
-  custom->addGlobalParameter("ktheta", 0.5);
-  custom->addGlobalParameter("kpsi", 0.6);
-  custom->addGlobalParameter("kchi", 0.7);
-  vector<double> parameters(3);
-  parameters[0] = 1.5;
-  parameters[1] = 1.7;
-  parameters[2] = 1.9;
-  custom->addDonor(1, 0, -1, -1, parameters);
-  parameters.resize(2);
-  parameters[0] = 2.1;
-  parameters[1] = 2;
-  custom->addAcceptor(2, 3, 4, -1, parameters);
-  custom->setCutoffDistance(10.0);
-  customSystem.addForce(custom);
-  ASSERT(!custom->usesPeriodicBoundaryConditions());
-  ASSERT(!customSystem.usesPeriodicBoundaryConditions());
-
-  // Create an identical system using HarmonicBondForce, HarmonicAngleForce, and PeriodicTorsionForce.
-
-  System standardSystem;
-  standardSystem.addParticle(1.0);
-  standardSystem.addParticle(1.0);
-  standardSystem.addParticle(1.0);
-  standardSystem.addParticle(1.0);
-  standardSystem.addParticle(1.0);
-  HarmonicBondForce* bond = new HarmonicBondForce();
-  bond->addBond(1, 2, 1.5, 0.4);
-  standardSystem.addForce(bond);
-  HarmonicAngleForce* angle = new HarmonicAngleForce();
-  angle->addAngle(0, 1, 2, 1.7, 0.5);
-  angle->addAngle(1, 2, 3, 1.9, 0.6);
-  standardSystem.addForce(angle);
-  PeriodicTorsionForce* torsion = new PeriodicTorsionForce();
-  torsion->addTorsion(1, 2, 3, 4, 2, 2.1, 0.7);
-  standardSystem.addForce(torsion);
-
-  // Set the atoms in various positions, and verify that both systems give identical forces and energy.
-
-  OpenMM_SFMT::SFMT sfmt;
-  init_gen_rand(0, sfmt);
-
-  vector<Vec3> positions(5);
-  VerletIntegrator integrator1(0.01);
-  VerletIntegrator integrator2(0.01);
-  Context c1(customSystem, integrator1, platform);
-  Context c2(standardSystem, integrator2, platform);
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < (int) positions.size(); j++)
-      positions[j] = Vec3(2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt));
-    c1.setPositions(positions);
-    c2.setPositions(positions);
-    State s1 = c1.getState(State::Forces | State::Energy);
-    State s2 = c2.getState(State::Forces | State::Energy);
-    for (int i = 0; i < customSystem.getNumParticles(); i++)
-    ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
-    ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
-  }
-
-  // Try changing the parameters and make sure it's still correct.
-
-  parameters.resize(3);
-  parameters[0] = 1.4;
-  parameters[1] = 1.7;
-  parameters[2] = 1.9;
-  custom->setDonorParameters(0, 1, 0, -1, -1, parameters);
-  parameters.resize(2);
-  parameters[0] = 2.2;
-  parameters[1] = 2;
-  custom->setAcceptorParameters(0, 2, 3, 4, -1, parameters);
-  bond->setBondParameters(0, 1, 2, 1.4, 0.4);
-  torsion->setTorsionParameters(0, 1, 2, 3, 4, 2, 2.2, 0.7);
-  custom->updateParametersInContext(c1);
-  bond->updateParametersInContext(c2);
-  torsion->updateParametersInContext(c2);
-  State s1 = c1.getState(State::Forces | State::Energy);
-  State s2 = c2.getState(State::Forces | State::Energy);
-  for (int i = 0; i < customSystem.getNumParticles(); i++)
-  ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
-  ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
-}
-
 void testVectorangle() {
         // Create a system using a CustomResiduePairForce.
 
@@ -290,7 +193,7 @@ void testVectorangle() {
         // Set the atoms in various positions, and verify that both systems give identical forces and energy.
 
         OpenMM_SFMT::SFMT sfmt;
-        init_gen_rand(100, sfmt);
+        init_gen_rand(0, sfmt);
 
         vector<Vec3> positions(5);
         VerletIntegrator integrator1(0.01);
@@ -328,6 +231,74 @@ void testVectorangle() {
         for (int i = 0; i < customSystem.getNumParticles(); i++)
         ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
         ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
+
+}
+
+void testVectorangle2() {
+  // Create a system using a CustomResiduePairForce.
+
+  System customSystem;
+  customSystem.addParticle(1.0);
+  customSystem.addParticle(1.0);
+  customSystem.addParticle(1.0);
+  customSystem.addParticle(1.0);
+  customSystem.addParticle(1.0);
+  CustomResiduePairForce* custom = new CustomResiduePairForce("e2-e1;\n"
+                                                              "e2=0.5*kpsi*(vectorangle(d2,d1,a1,a2)-psi0)^2;\n"
+                                                              "e1=0.5*kpsi*(t3-psi0)^2;\n"
+                                                              "t3 = acos(cost3lim);\n"
+                                                              "cost3lim = min(max(cost3,-0.9999),0.9999);\n"
+                                                              "cost3 = sin(t1)*sin(t2)*cos(phi)-cos(t1)*cos(t2);\n"
+                                                              "t1 = angle(d2,d1,a1);\n"
+                                                              "t2 = angle(d1,a1,a2);\n"
+                                                              "phi = dihedral(d2,d1,a1,a2);");
+  custom->addPerDonorParameter("psi0");
+  custom->addGlobalParameter("kpsi", 0.6);
+  vector<double> parameters(1);
+  parameters[0] = 1.5;
+  custom->addDonor(1, 0, -1, -1, parameters);
+  parameters.resize(0);
+  custom->addAcceptor(2, 3, 4, -1, parameters);
+  custom->setCutoffDistance(10.0);
+  customSystem.addForce(custom);
+  ASSERT(!custom->usesPeriodicBoundaryConditions());
+  ASSERT(!customSystem.usesPeriodicBoundaryConditions());
+
+  // Create an identical system using angle and dihedral.
+
+  // Set the atoms in various positions, and verify that the energy and force is always 0.
+
+  OpenMM_SFMT::SFMT sfmt;
+  init_gen_rand(0, sfmt);
+
+  vector<Vec3> positions(5);
+  VerletIntegrator integrator1(0.01);
+  Context c1(customSystem, integrator1, platform);
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < (int) positions.size(); j++)
+      positions[j] = Vec3(2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt));
+    c1.setPositions(positions);
+    State s1 = c1.getState(State::Forces | State::Energy);
+    for (int i = 0; i < customSystem.getNumParticles(); i++)
+    ASSERT_EQUAL_VEC(Vec3(0, 0, 0), s1.getForces()[i], 5e-1);
+    ASSERT_EQUAL_TOL(0.0, s1.getPotentialEnergy(), 5e-1);
+  }
+
+  // Try changing the parameters and make sure it's still correct.
+
+  parameters.resize(1);
+  parameters[0] = 1.4;
+  custom->setDonorParameters(0, 1, 0, -1, -1, parameters);
+  parameters.resize(0);
+  custom->setAcceptorParameters(0, 2, 3, 4, -1, parameters);
+  custom->updateParametersInContext(c1);
+  parameters.resize(1);
+  parameters[0] = 1.4;
+  parameters.resize(0);
+  State s1 = c1.getState(State::Forces | State::Energy);
+  for (int i = 0; i < customSystem.getNumParticles(); i++)
+  ASSERT_EQUAL_VEC(Vec3(0, 0, 0), s1.getForces()[i], 5e-1);
+  ASSERT_EQUAL_TOL(0.0, s1.getPotentialEnergy(), 5e-1);
 
 }
 
@@ -497,6 +468,7 @@ int main(int argc, char* argv[]) {
         testExclusions();
         testCutoff();
         testVectorangle();
+        testVectorangle2();
         testCustomFunctions();
         test2DFunction();
         testIllegalVariable();
