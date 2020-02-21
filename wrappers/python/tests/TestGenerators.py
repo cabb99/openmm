@@ -147,7 +147,18 @@ class TestGenerators(unittest.TestCase):
 
     def test_CustomResiduePairGenerator2(self):
         """Test the generator for CustomResiduePairForce with different parameters."""
-
+        xml2 = """
+<ForceField>
+ <CustomHbondForce energy="a*b*distance(a1,d1)" particlesPerDonor="3" particlesPerAcceptor="2" bondCutoff="%d">
+  <PerDonorParameter name="a"/>
+  <PerAcceptorParameter name="b"/>
+  <Donor class1="C" class2="N" class3="H" a="3"/>
+  <Acceptor class1="C" class2="O" b="2"/>
+  <Function name="test" min="1" max="2" type="Continuous1D">
+   0 1 2 3 4 5
+  </Function>
+ </CustomHbondForce>
+</ForceField>""" % bondCutoff
         xml = """
 <ForceField>
  <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="1" bondCutoff="0">
@@ -157,7 +168,7 @@ class TestGenerators(unittest.TestCase):
   <Acceptor class1="O" b="2"/>
  </CustomResiduePairForce>
 </ForceField>"""
-        ff = ForceField('amber99sb.xml', StringIO(xml))
+        ff = ForceField('amber99sb.xml', StringIO(xml),StringIO(xml2))
         system = ff.createSystem(self.pdb1.topology)
         try:
             residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
