@@ -162,7 +162,7 @@ class TestGenerators(unittest.TestCase):
         try:
             residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
         except IndexError as e:
-            raise IndexError(system.getForces()[0].type)
+            raise IndexError([system.getForces()])
         self.assertEqual(1, residuepair.getNumPerDonorParameters())
         self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
         self.assertEqual('a', residuepair.getPerDonorParameterName(0))
