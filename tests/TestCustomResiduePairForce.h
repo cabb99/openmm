@@ -144,7 +144,7 @@ void testResiduePair() {
 }
 
 void testExtraParticle() {
-  //TODO: Bug - Extra particle a4 is failing
+  //TODO: Bug - Extra particle a4 is failing in OpenCL
   // Create a system using a CustomResiduePairForce.
 
   System customSystem;
@@ -240,13 +240,13 @@ void testExtraParticle() {
   parameters[0] = 1.4;
   parameters[1] = 1.7;
   parameters[2] = 1.9;
-  custom->setDonorParameters(0, 0, 1, 3, 2, parameters);
+  custom->setDonorParameters(0, 0, 1, 2, 3, parameters);
   parameters.resize(2);
   parameters[0] = 2.2;
   parameters[1] = 2;
-  custom->setAcceptorParameters(0, 4, 5, 7, 6, parameters);
-  bond->setBondParameters(0, 2, 7, 1.4, 0.4);
-  torsion->setTorsionParameters(0, 7, 5, 4, 0, 2, 2.2, 0.7);
+  custom->setAcceptorParameters(0, 4, 5, 6, 7, parameters);
+  bond->setBondParameters(0, 3, 6, 1.4, 0.4);
+  torsion->setTorsionParameters(0, 6, 5, 4, 0, 2, 2.2, 0.7);
   custom->updateParametersInContext(c1);
   bond->updateParametersInContext(c2);
   torsion->updateParametersInContext(c2);
