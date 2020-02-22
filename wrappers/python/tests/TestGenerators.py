@@ -142,6 +142,8 @@ class TestGenerators(unittest.TestCase):
                 expectedExclusions.append((1,0))
             self.assertEqual(len(expectedExclusions), residuepair.getNumExclusions())
             for i in range(residuepair.getNumExclusions()):
+                print(tuple(residuepair.getExclusionParticles(i)), expectedExclusions)
+            for i in range(residuepair.getNumExclusions()):
                 self.assertTrue(tuple(residuepair.getExclusionParticles(i)) in expectedExclusions)
 
 
