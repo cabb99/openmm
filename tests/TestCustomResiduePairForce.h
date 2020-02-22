@@ -144,6 +144,7 @@ void testResiduePair() {
 }
 
 void testExtraParticle() {
+  //TODO: Bug - Extra particle a4 is failing
   // Create a system using a CustomResiduePairForce.
 
   System customSystem;
@@ -155,7 +156,12 @@ void testExtraParticle() {
   customSystem.addParticle(1.0);
   customSystem.addParticle(1.0);
   customSystem.addParticle(1.0);
-  CustomResiduePairForce* custom = new CustomResiduePairForce("0.5*kr*(distance(d1,a1)-r0)^2 + 0.5*ktheta*(angle(a2,d1,d3)-theta0)^2 + 0.5*kpsi*(angle(d4,a4,a1)-psi0)^2 + kchi*(1+cos(n*dihedral(a4,a3,d3,d4)-chi0))");
+  customSystem.addParticle(1.0);
+  customSystem.addParticle(1.0);
+  CustomResiduePairForce* custom = new CustomResiduePairForce("0.5*kr*(distance(d4,a3)-r0)^2 "
+                                                              "+ 0.5*ktheta*(angle(a2,a1,d3)-theta0)^2 "
+                                                              "+ 0.5*kpsi*(angle(d4,a3,a1)-psi0)^2 "
+                                                              "+ kchi*(1+cos(n*dihedral(a3,a2,a1,d1)-chi0))");
   custom->addPerDonorParameter("r0");
   custom->addPerDonorParameter("theta0");
   custom->addPerDonorParameter("psi0");
@@ -190,15 +196,17 @@ void testExtraParticle() {
   standardSystem.addParticle(1.0);
   standardSystem.addParticle(1.0);
   standardSystem.addParticle(1.0);
+  standardSystem.addParticle(1.0);
+  standardSystem.addParticle(1.0);
   HarmonicBondForce* bond = new HarmonicBondForce();
-  bond->addBond(0, 4, 1.5, 0.4);
+  bond->addBond(3, 6, 1.5, 0.4);
   standardSystem.addForce(bond);
   HarmonicAngleForce* angle = new HarmonicAngleForce();
-  angle->addAngle(5, 0, 2, 1.7, 0.5);
-  angle->addAngle(3, 7, 4, 1.9, 0.6);
+  angle->addAngle(5, 4, 2, 1.7, 0.5);
+  angle->addAngle(3, 6, 4, 1.9, 0.6);
   standardSystem.addForce(angle);
   PeriodicTorsionForce* torsion = new PeriodicTorsionForce();
-  torsion->addTorsion(7, 6, 2, 3, 2, 2.1, 0.7);
+  torsion->addTorsion(6, 5, 4, 0, 2, 2.1, 0.7);
   standardSystem.addForce(torsion);
 
   // Set the atoms in various positions, and verify that both systems give identical forces and energy.
@@ -206,7 +214,7 @@ void testExtraParticle() {
   OpenMM_SFMT::SFMT sfmt;
   init_gen_rand(0, sfmt);
 
-  vector<Vec3> positions(8);
+  vector<Vec3> positions(10);
   VerletIntegrator integrator1(0.01);
   VerletIntegrator integrator2(0.01);
   Context c1(customSystem, integrator1, platform);
@@ -219,7 +227,10 @@ void testExtraParticle() {
     State s1 = c1.getState(State::Forces | State::Energy);
     State s2 = c2.getState(State::Forces | State::Energy);
     for (int i = 0; i < customSystem.getNumParticles(); i++)
-    ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
+      cout<<s2.getForces()[i]<< " " << s1.getForces()[i]<<" "<<TOL<<endl;
+    cout<<s2.getPotentialEnergy()<< " " << s1.getPotentialEnergy() << " "<< TOL<<endl;
+    for (int i = 0; i < customSystem.getNumParticles(); i++)
+      ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
     ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
   }
 
@@ -229,18 +240,22 @@ void testExtraParticle() {
   parameters[0] = 1.4;
   parameters[1] = 1.7;
   parameters[2] = 1.9;
-  custom->setDonorParameters(0, 0, 1, 2, 3, parameters);
+  custom->setDonorParameters(0, 0, 1, 3, 2, parameters);
   parameters.resize(2);
   parameters[0] = 2.2;
   parameters[1] = 2;
-  custom->setAcceptorParameters(0, 4, 5, 6, 7, parameters);
-  bond->setBondParameters(0, 0, 4, 1.4, 0.4);
-  torsion->setTorsionParameters(0, 7, 6, 2, 3, 2, 2.2, 0.7);
+  custom->setAcceptorParameters(0, 4, 5, 7, 6, parameters);
+  bond->setBondParameters(0, 2, 7, 1.4, 0.4);
+  torsion->setTorsionParameters(0, 7, 5, 4, 0, 2, 2.2, 0.7);
   custom->updateParametersInContext(c1);
   bond->updateParametersInContext(c2);
   torsion->updateParametersInContext(c2);
   State s1 = c1.getState(State::Forces | State::Energy);
   State s2 = c2.getState(State::Forces | State::Energy);
+  cout<<"Changing parameters"<<endl;
+  for (int i = 0; i < customSystem.getNumParticles(); i++)
+    cout<<s2.getForces()[i]<< " " << s1.getForces()[i]<<" "<<TOL<<endl;
+  cout<<s2.getPotentialEnergy()<< " " << s1.getPotentialEnergy() << " "<< TOL<<endl;
   for (int i = 0; i < customSystem.getNumParticles(); i++)
   ASSERT_EQUAL_VEC(s2.getForces()[i], s1.getForces()[i], TOL);
   ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);

@@ -4846,12 +4846,12 @@ void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, co
         defines["USE_PERIODIC"] = "1";
     if (force.getNumExclusions() > 0)
         defines["USE_EXCLUSIONS"] = "1";
-//    for (auto & r: replacements) {
-//      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
-//    }
-//    for (auto & r: defines) {
-//      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
-//    }
+    for (auto & r: replacements) {
+      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
+    }
+    for (auto & r: defines) {
+      std::cout << r.first << std::endl << r.second << std::endl << std::endl;
+    }
     ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customResiduePairForce, replacements), defines);
 
     donorKernel = program->createKernel("crp_computeDonorForces");
