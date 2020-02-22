@@ -3203,25 +3203,26 @@ class CustomResiduePairGenerator(object):
                 connectivity[atom][atom_type].sort()
 
         #Create generator
-        def next_atoms(atomtypes, previous_atom=-1):
+        def next_atoms(atomtypes, previous_atoms=[]):
             if len(atomtypes)==0:
                 yield []
 
-            elif previous_atom==-1:
+            elif len(previous_atoms)==0:
                 #First atom in the list
                 for atom_type in atomtypes[0]:
                     try:
                         for atom in atoms_from_type[atom_type]:
-                            for next_atom in next_atoms(atomtypes[1:], previous_atom=atom):
+                            for next_atom in next_atoms(atomtypes[1:], previous_atoms=[atom]):
                                 yield [atom] + next_atom
                     except KeyError:
                         continue
             else:
                 for atom_type in atomtypes[0]:
                     try:
-                        for atom in connectivity[previous_atom][atom_type]:
-                            for next_atom in next_atoms(atomtypes[1:], previous_atom=atom):
-                                yield [atom] + next_atom
+                        for previous_atom in previous_atoms:
+                            for atom in connectivity[previous_atom][atom_type]:
+                                for next_atom in next_atoms(atomtypes[1:], previous_atoms=previous_atoms+[atom]):
+                                    yield [atom] + next_atom
                     except KeyError:
                         continue
         return next_atoms

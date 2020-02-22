@@ -149,11 +149,11 @@ class TestGenerators(unittest.TestCase):
         """Test the generator for CustomResiduePairForce with different parameters."""
         xml = """
 <ForceField>
- <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="4" bondCutoff="0">
+ <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="3" particlesPerAcceptor="4" bondCutoff="0">
   <PerDonorParameter name="a"/>
   <PerAcceptorParameter name="b"/>
-  <Donor class1="C" class2="O" a="3"/>
-  <Acceptor class1="O" class2="C" class3="N" class4="H" b="2"/>
+  <Donor class1="H" class2="N" class3="C" a="3"/>
+  <Acceptor class1="O" class2="C" class3="N" class4="CT" b="2"/>
  </CustomResiduePairForce>
 </ForceField>"""
         ff = ForceField('amber99sb.xml', StringIO(xml))
@@ -166,10 +166,8 @@ class TestGenerators(unittest.TestCase):
         self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
         self.assertEqual('a', residuepair.getPerDonorParameterName(0))
         self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
-        expectedDonors = [(4,5,-1,-1),(14,15,-1,-1)]
-        expectedAcceptors = [(5, 4,6,7), (15,14,16,17)]
-        nDonors=residuepair.getNumDonors()
-        nAcceptors=residuepair.getNumAcceptors()
+        expectedDonors = [(7,6,4,-1), (17,16,14,-1)]
+        expectedAcceptors = [(5, 4,6,1),(15,14,16,18),(15,14,16,8),(5, 4,6,8)]
         self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
         self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
         for i in range(residuepair.getNumDonors()):
