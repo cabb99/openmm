@@ -147,25 +147,16 @@ class TestGenerators(unittest.TestCase):
 
     def test_CustomResiduePairGenerator2(self):
         """Test the generator for CustomResiduePairForce with different parameters."""
-        xml2 = """
-<ForceField>
- <CustomHbondForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="1" bondCutoff="0">
-  <PerDonorParameter name="a"/>
-  <PerAcceptorParameter name="b"/>
-  <Donor class1="N" class2="H" a="3"/>
-  <Acceptor class1="O" b="2"/>
- </CustomHbondForce>
-</ForceField>"""
         xml = """
 <ForceField>
- <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="1" bondCutoff="0">
+ <CustomResiduePairForce energy="a*b*distance(a1,d1)" particlesPerDonor="2" particlesPerAcceptor="4" bondCutoff="0">
   <PerDonorParameter name="a"/>
   <PerAcceptorParameter name="b"/>
-  <Donor class1="N" class2="H" a="3"/>
-  <Acceptor class1="O" b="2"/>
+  <Donor class1="C" class2="O" a="3"/>
+  <Acceptor class1="O" class2="C" class3="N" class4="H" b="2"/>
  </CustomResiduePairForce>
 </ForceField>"""
-        ff = ForceField('amber99sb.xml', StringIO(xml),StringIO(xml2))
+        ff = ForceField('amber99sb.xml', StringIO(xml))
         system = ff.createSystem(self.pdb1.topology)
         try:
             residuepair = [f for f in system.getForces() if isinstance(f, CustomResiduePairForce)][0]
@@ -175,8 +166,10 @@ class TestGenerators(unittest.TestCase):
         self.assertEqual(1, residuepair.getNumPerAcceptorParameters())
         self.assertEqual('a', residuepair.getPerDonorParameterName(0))
         self.assertEqual('b', residuepair.getPerAcceptorParameterName(0))
-        expectedDonors = [(6,7,-1,-1), (16,17,-1,-1)]
-        expectedAcceptors = [(5,-1,-1,-1), (15,-1,-1,-1)]
+        expectedDonors = [(4,5,-1,-1),(14,15,-1,-1)]
+        expectedAcceptors = [(5, 4,6,7), (15,14,16,17)]
+        nDonors=residuepair.getNumDonors()
+        nAcceptors=residuepair.getNumAcceptors()
         self.assertEqual(len(expectedDonors), residuepair.getNumDonors())
         self.assertEqual(len(expectedAcceptors), residuepair.getNumAcceptors())
         for i in range(residuepair.getNumDonors()):
