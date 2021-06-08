@@ -29,7 +29,6 @@
 
 #include "OpenCLArray.h"
 #include "OpenCLContext.h"
-#include <cl.hpp>
 #include <string>
 #include <vector>
 
@@ -52,6 +51,10 @@ public:
      * Get the name of this kernel.
      */
     std::string getName() const;
+    /**
+     * Get the maximum block size that can be used when executing this kernel.
+     */
+    int getMaxBlockSize() const;
     /**
      * Execute this kernel.
      *

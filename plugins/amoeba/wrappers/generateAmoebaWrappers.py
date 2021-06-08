@@ -1,7 +1,5 @@
 from __future__ import print_function
 import sys, os
-import time
-import getopt
 import re
 import xml.etree.ElementTree as etree
 
@@ -97,7 +95,7 @@ class WrapperGenerator:
             self.findBaseNodes(node, orderedClassNodes)
         return orderedClassNodes
 
-    def findBaseNodes(self, node, excludedClassNodes=[]):
+    def findBaseNodes(self, node, excludedClassNodes):
         if node in excludedClassNodes:
             return
         if node.attrib['prot'] == 'private':
@@ -114,7 +112,6 @@ class WrapperGenerator:
 
     def getClassMethods(self, classNode):
         className = getText("compoundname", classNode)
-        shortClassName = stripOpenMMPrefix(className)
         methodList = []
         for section in findNodes(classNode, "sectiondef", kind="public-static-func")+findNodes(classNode, "sectiondef", kind="public-func"):
             for memberNode in findNodes(section, "memberdef", kind="function", prot="public"):
@@ -202,7 +199,6 @@ class CHeaderGenerator(WrapperGenerator):
             for node in findNodes(section, "memberdef", kind="enum", prot="public"):
                 enumNodes.append(node)
         className = getText("compoundname", classNode)
-        shortClassName = stripOpenMMPrefix(className)
         typeName = convertOpenMMPrefix(className)
         for enumNode in enumNodes:
             enumName = getText("name", enumNode)
@@ -257,6 +253,7 @@ class CHeaderGenerator(WrapperGenerator):
             methodNames[methodNode] = shortMethodDefinition.split()[-1]
         
         # Write other methods
+        nameCount = {}
         for methodNode in methodList:
             methodName = methodNames[methodNode]
             if methodName in (shortClassName, destructorName):
@@ -268,6 +265,13 @@ class CHeaderGenerator(WrapperGenerator):
                 # There are two identical methods that differ only in whether they are const.  Skip the const one.
                 continue
             returnType = self.getType(getText("type", methodNode))
+            if methodName in nameCount:
+                # There are multiple methods with the same name.
+                count = nameCount[methodName]
+                methodName = "%s_%d" % (methodName, count)
+                nameCount[methodName] = count+1
+            else:
+                nameCount[methodName] = 1
             self.out.write("extern OPENMM_EXPORT_AMOEBA %s %s_%s(" % (returnType, typeName, methodName))
             isInstanceMethod = (methodNode.attrib['static'] != 'yes')
             if isInstanceMethod:
@@ -438,6 +442,7 @@ class CSourceGenerator(WrapperGenerator):
             methodNames[methodNode] = shortMethodDefinition.split()[-1]
         
         # Write other methods
+        nameCount = {}
         for methodNode in methodList:
             methodName = methodNames[methodNode]
             if methodName in (shortClassName, destructorName):
@@ -448,6 +453,13 @@ class CSourceGenerator(WrapperGenerator):
             if isConstMethod and any(methodNames[m] == methodName and m.attrib['const'] == 'no' for m in methodList):
                 # There are two identical methods that differ only in whether they are const.  Skip the const one.
                 continue
+            if methodName in nameCount:
+                # There are multiple methods with the same name.
+                count = nameCount[methodName]
+                methodName = "%s_%d" % (methodName, count)
+                nameCount[methodName] = count+1
+            else:
+                nameCount[methodName] = 1
             methodType = getText("type", methodNode)
             returnType = self.getType(methodType)
             if methodType in self.classesByShortName:
@@ -474,7 +486,7 @@ class CSourceGenerator(WrapperGenerator):
                 self.out.write('%s*>(target)->' % className)
             else:
                 self.out.write('%s::' % className)
-            self.out.write('%s(' % methodName)
+            self.out.write('%s(' % methodNames[methodNode])
             self.writeInvocationArguments(methodNode, False)
             self.out.write(');\n')
             if returnType != 'void':
@@ -758,6 +770,7 @@ class FortranHeaderGenerator(WrapperGenerator):
             methodNames[methodNode] = shortMethodDefinition.split()[-1]
         
         # Write other methods
+        nameCount = {}
         for methodNode in methodList:
             methodName = methodNames[methodNode]
             if methodName in (shortClassName, destructorName):
@@ -768,6 +781,13 @@ class FortranHeaderGenerator(WrapperGenerator):
             if isConstMethod and any(methodNames[m] == methodName and m.attrib['const'] == 'no' for m in methodList):
                 # There are two identical methods that differ only in whether they are const.  Skip the const one.
                 continue
+            if methodName in nameCount:
+                # There are multiple methods with the same name.
+                count = nameCount[methodName]
+                methodName = "%s_%d" % (methodName, count)
+                nameCount[methodName] = count+1
+            else:
+                nameCount[methodName] = 1
             returnType = self.getType(getText("type", methodNode))
             hasReturnValue = (returnType in ('integer*4', 'real*8'))
             hasReturnArg = not (hasReturnValue or returnType == 'void')
@@ -973,6 +993,7 @@ class FortranSourceGenerator(WrapperGenerator):
             methodNames[methodNode] = shortMethodDefinition.split()[-1]
         
         # Write other methods
+        nameCount = {}
         for methodNode in methodList:
             methodName = methodNames[methodNode]
             if methodName in (shortClassName, destructorName):
@@ -985,13 +1006,19 @@ class FortranSourceGenerator(WrapperGenerator):
             if isConstMethod and any(methodNames[m] == methodName and m.attrib['const'] == 'no' for m in methodList):
                 # There are two identical methods that differ only in whether they are const.  Skip the const one.
                 continue
+            if methodName in nameCount:
+                # There are multiple methods with the same name.
+                count = nameCount[methodName]
+                methodName = "%s_%d" % (methodName, count)
+                nameCount[methodName] = count+1
+            else:
+                nameCount[methodName] = 1
             functionName = "%s_%s" % (typeName, methodName)
             self.writeOneMethod(classNode, methodNode, functionName, functionName.lower()+'_')
             self.writeOneMethod(classNode, methodNode, functionName, functionName.upper())
     
     def writeOneConstructor(self, classNode, methodNode, functionName, wrapperFunctionName):
         className = getText("compoundname", classNode)
-        shortClassName = stripOpenMMPrefix(className)
         typeName = convertOpenMMPrefix(className)
         self.out.write("OPENMM_EXPORT_AMOEBA void %s(%s*& result" % (wrapperFunctionName, typeName))
         self.writeArguments(methodNode, True)
@@ -1017,8 +1044,6 @@ class FortranSourceGenerator(WrapperGenerator):
         returnType = self.getType(methodType)
         hasReturnValue = (returnType in ('int', 'bool', 'double'))
         hasReturnArg = not (hasReturnValue or returnType == 'void')
-        if methodType in self.classesByShortName:
-            methodType = self.classesByShortName[methodType]
         self.out.write("OPENMM_EXPORT_AMOEBA ")
         if hasReturnValue:
             self.out.write(returnType)
@@ -1037,7 +1062,7 @@ class FortranSourceGenerator(WrapperGenerator):
                 returnArg = 'char* result'
             else:
                 returnArg = "%s& result" % returnType
-        numArgs = self.writeArguments(methodNode, isInstanceMethod, returnArg)
+        self.writeArguments(methodNode, isInstanceMethod, returnArg)
         if hasReturnArg and returnType == 'const char*':
             self.out.write(", int result_length")
         self.out.write(") {\n")

@@ -2,10 +2,10 @@ import unittest
 import os
 import tempfile
 from validateConstraints import *
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
-import simtk.openmm.app.element as elem
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
+import openmm.app.element as elem
 
 prmtop1 = AmberPrmtopFile('systems/alanine-dipeptide-explicit.prmtop')
 prmtop2 = AmberPrmtopFile('systems/alanine-dipeptide-implicit.prmtop')
@@ -145,7 +145,10 @@ class TestAmberPrmtopFile(unittest.TestCase):
         for atom in topology.atoms():
             if atom.element == elem.hydrogen:
                 self.assertNotEqual(hydrogenMass, system1.getParticleMass(atom.index))
-                self.assertEqual(hydrogenMass, system2.getParticleMass(atom.index))
+                if atom.residue.name == 'HOH':
+                    self.assertEqual(system1.getParticleMass(atom.index), system2.getParticleMass(atom.index))
+                else:
+                    self.assertEqual(hydrogenMass, system2.getParticleMass(atom.index))
         totalMass1 = sum([system1.getParticleMass(i) for i in range(system1.getNumParticles())]).value_in_unit(amu)
         totalMass2 = sum([system2.getParticleMass(i) for i in range(system2.getNumParticles())]).value_in_unit(amu)
         self.assertAlmostEqual(totalMass1, totalMass2)
@@ -374,7 +377,7 @@ class TestAmberPrmtopFile(unittest.TestCase):
 
     def testGBneckRadii(self):
         """ Tests that GBneck radii limits are correctly enforced """
-        from simtk.openmm.app.internal.customgbforces import GBSAGBnForce
+        from openmm.app.internal.customgbforces import GBSAGBnForce
         f = GBSAGBnForce()
         # Make sure legal parameters do not raise
         f.addParticle([0, 0.1, 0.5])

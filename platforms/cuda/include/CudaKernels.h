@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2021 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -31,14 +31,10 @@
 #include "CudaArray.h"
 #include "CudaContext.h"
 #include "CudaFFT3D.h"
-#include "CudaParameterSet.h"
 #include "CudaSort.h"
 #include "openmm/kernels.h"
 #include "openmm/System.h"
-#include "openmm/internal/CompiledExpressionSet.h"
-#include "openmm/internal/CustomIntegratorUtilities.h"
-#include "lepton/CompiledExpression.h"
-#include "lepton/ExpressionProgram.h"
+#include "openmm/common/CommonKernels.h"
 #include <cufft.h>
 
 namespace OpenMM {
@@ -62,6 +58,10 @@ public:
      * @param cu         the CudaContext for which the kernel is being compiled
      */
     virtual std::string createModule(const std::string& source, const std::string& flags, CudaContext& cu) = 0;
+    /**
+     * Get the maximum architecture version the compiler supports.
+     */
+    virtual int getMaxSupportedArchitecture() const = 0;
 };
 
 /**
@@ -203,63 +203,6 @@ private:
 };
 
 /**
- * This kernel modifies the positions of particles to enforce distance constraints.
- */
-class CudaApplyConstraintsKernel : public ApplyConstraintsKernel {
-public:
-    CudaApplyConstraintsKernel(std::string name, const Platform& platform, CudaContext& cu) : ApplyConstraintsKernel(name, platform),
-            cu(cu), hasInitializedKernel(false) {
-    }
-    /**
-     * Initialize the kernel.
-     *
-     * @param system     the System this kernel will be applied to
-     */
-    void initialize(const System& system);
-    /**
-     * Update particle positions to enforce constraints.
-     *
-     * @param context    the context in which to execute this kernel
-     * @param tol        the distance tolerance within which constraints must be satisfied.
-     */
-    void apply(ContextImpl& context, double tol);
-    /**
-     * Update particle velocities to enforce constraints.
-     *
-     * @param context    the context in which to execute this kernel
-     * @param tol        the velocity tolerance within which constraints must be satisfied.
-     */
-    void applyToVelocities(ContextImpl& context, double tol);
-private:
-    CudaContext& cu;
-    bool hasInitializedKernel;
-    CUfunction applyDeltasKernel;
-};
-
-/**
- * This kernel recomputes the positions of virtual sites.
- */
-class CudaVirtualSitesKernel : public VirtualSitesKernel {
-public:
-    CudaVirtualSitesKernel(std::string name, const Platform& platform, CudaContext& cu) : VirtualSitesKernel(name, platform), cu(cu) {
-    }
-    /**
-     * Initialize the kernel.
-     *
-     * @param system     the System this kernel will be applied to
-     */
-    void initialize(const System& system);
-    /**
-     * Compute the virtual site locations.
-     *
-     * @param context    the context in which to execute this kernel
-     */
-    void computePositions(ContextImpl& context);
-private:
-    CudaContext& cu;
-};
-
-/**
  * This kernel is invoked by NonbondedForce to calculate the forces acting on the system.
  */
 class CudaCalcNonbondedForceKernel : public CalcNonbondedForceKernel {
@@ -395,206 +338,13 @@ private:
 /**
  * This kernel is invoked by CustomCVForce to calculate the forces acting on the system and the energy of the system.
  */
-class CudaCalcCustomCVForceKernel : public CalcCustomCVForceKernel {
+class CudaCalcCustomCVForceKernel : public CommonCalcCustomCVForceKernel {
 public:
-    CudaCalcCustomCVForceKernel(std::string name, const Platform& platform, CudaContext& cu) : CalcCustomCVForceKernel(name, platform),
-            cu(cu), hasInitializedListeners(false) {
+    CudaCalcCustomCVForceKernel(std::string name, const Platform& platform, ComputeContext& cc) : CommonCalcCustomCVForceKernel(name, platform, cc) {
     }
-    /**
-     * Initialize the kernel.
-     *
-     * @param system     the System this kernel will be applied to
-     * @param force      the CustomCVForce this kernel will be used for
-     * @param innerContext   the context created by the CustomCVForce for computing collective variables
-     */
-    void initialize(const System& system, const CustomCVForce& force, ContextImpl& innerContext);
-    /**
-     * Execute the kernel to calculate the forces and/or energy.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param innerContext   the context created by the CustomCVForce for computing collective variables
-     * @param includeForces  true if forces should be calculated
-     * @param includeEnergy  true if the energy should be calculated
-     * @return the potential energy due to the force
-     */
-    double execute(ContextImpl& context, ContextImpl& innerContext, bool includeForces, bool includeEnergy);
-    /**
-     * Copy state information to the inner context.
-     *
-     * @param context        the context in which to execute this kernel
-     * @param innerContext   the context created by the CustomCVForce for computing collective variables
-     */
-    void copyState(ContextImpl& context, ContextImpl& innerContext);
-    /**
-     * Copy changed parameters over to a context.
-     *
-     * @param context    the context to copy parameters to
-     * @param force      the CustomCVForce to copy the parameters from
-     */
-    void copyParametersToContext(ContextImpl& context, const CustomCVForce& force);
-private:
-    class ForceInfo;
-    class ReorderListener;
-    CudaContext& cu;
-    bool hasInitializedListeners;
-    Lepton::ExpressionProgram energyExpression;
-    std::vector<std::string> variableNames, paramDerivNames, globalParameterNames;
-    std::vector<Lepton::ExpressionProgram> variableDerivExpressions;
-    std::vector<Lepton::ExpressionProgram> paramDerivExpressions;
-    std::vector<CudaArray> cvForces;
-    CudaArray invAtomOrder;
-    CudaArray innerInvAtomOrder;
-    CUfunction copyStateKernel, copyForcesKernel, addForcesKernel;
-};
-
-/*
- * This kernel is invoked by NoseHooverIntegrator to take one time step.
- */
-class CudaIntegrateVelocityVerletStepKernel : public IntegrateVelocityVerletStepKernel {
-public:
-    CudaIntegrateVelocityVerletStepKernel(std::string name, const Platform& platform, CudaContext& cu) :
-                                  IntegrateVelocityVerletStepKernel(name, platform), cu(cu) { }
-    ~CudaIntegrateVelocityVerletStepKernel() {}
-    /**
-     * Initialize the kernel.
-     * 
-     * @param system     the System this kernel will be applied to
-     * @param integrator the NoseHooverIntegrator this kernel will be used for
-     */
-    void initialize(const System& system, const NoseHooverIntegrator& integrator);
-    /**
-     * Execute the kernel.
-     * 
-     * @param context    the context in which to execute this kernel
-     * @param integrator the VerletIntegrator this kernel is being used for
-     * @param forcesAreValid a reference to the parent integrator's boolean for keeping
-     *                       track of the validity of the current forces.
-     */
-    void execute(ContextImpl& context, const NoseHooverIntegrator& integrator, bool &forcesAreValid);
-    /**
-     * Compute the kinetic energy.
-     * 
-     * @param context    the context in which to execute this kernel
-     * @param integrator the NoseHooverIntegrator this kernel is being used for
-     */
-    double computeKineticEnergy(ContextImpl& context, const NoseHooverIntegrator& integrator);
-private:
-    CudaContext& cu;
-    float prevMaxPairDistance;
-    CudaArray maxPairDistanceBuffer, pairListBuffer, atomListBuffer, pairTemperatureBuffer;
-    CUfunction kernel1, kernel2, kernel3, kernelHardWall;
-};
-
-/**
- * This kernel is invoked by NoseHooverChain at the start of each time step to adjust the thermostat
- * and update the associated particle velocities.
- */
-class CudaNoseHooverChainKernel : public NoseHooverChainKernel {
-public:
-    CudaNoseHooverChainKernel(std::string name, const Platform& platform, CudaContext& cu) : NoseHooverChainKernel(name, platform), cu(cu) {
+    ComputeContext& getInnerComputeContext(ContextImpl& innerContext) {
+        return *reinterpret_cast<CudaPlatform::PlatformData*>(innerContext.getPlatformData())->contexts[0];
     }
-    ~CudaNoseHooverChainKernel() {}
-    /**
-     * Initialize the kernel.
-     */
-    void initialize();
-    /**
-     * Execute the kernel that propagates the Nose Hoover chain and determines the velocity scale factor.
-     * 
-     * @param context  the context in which to execute this kernel
-     * @param noseHooverChain the object describing the chain to be propagated.
-     * @param kineticEnergies the {absolute, relative} kineticEnergy of the particles being thermostated by this chain.
-     * @param timeStep the time step used by the integrator.
-     * @return the {absolute, relative} velocity scale factor to apply to the particles associated with this heat bath.
-     */
-    std::pair<double, double> propagateChain(ContextImpl& context, const NoseHooverChain &nhc, std::pair<double, double> kineticEnergies, double timeStep);
-    /**
-     * Execute the kernal that computes the total (kinetic + potential) heat bath energy.
-     *
-     * @param context the context in which to execute this kernel
-     * @param noseHooverChain the chain whose energy is to be determined.
-     * @return the total heat bath energy.
-     */
-    double computeHeatBathEnergy(ContextImpl& context, const NoseHooverChain &nhc);
-    /**
-     * Execute the kernel that computes the kinetic energy for a subset of atoms,
-     * or the relative kinetic energy of Drude particles with respect to their parent atoms
-     *
-     * @param context the context in which to execute this kernel
-     * @param noseHooverChain the chain whose energy is to be determined.
-     * @param downloadValue whether the computed value should be downloaded and returned.
-     *
-     */
-    std::pair<double,double> computeMaskedKineticEnergy(ContextImpl& context, const NoseHooverChain &noseHooverChain, bool downloadValue);
-
-    /**
-     * Execute the kernel that scales the velocities of particles associated with a nose hoover chain
-     *
-     * @param context the context in which to execute this kernel
-     * @param noseHooverChain the chain whose energy is to be determined.
-     * @param scaleFactors the {absolute, relative} multiplicative factor by which velocities are scaled.
-     */
-    void scaleVelocities(ContextImpl& context, const NoseHooverChain &noseHooverChain, std::pair<double, double> scaleFactors);
-
-private:
-    int sumWorkGroupSize;
-    CudaContext& cu;
-    CudaArray energyBuffer, scaleFactorBuffer, kineticEnergyBuffer, chainMasses, chainForces, heatBathEnergy;
-    std::map<int, CudaArray> atomlists, pairlists;
-    std::map<int, CUfunction> propagateKernels;
-    CUfunction reduceEnergyKernel;
-    CUfunction computeHeatBathEnergyKernel;
-    CUfunction computeAtomsKineticEnergyKernel;
-    CUfunction computePairsKineticEnergyKernel;
-    CUfunction scaleAtomsVelocitiesKernel;
-    CUfunction scalePairsVelocitiesKernel;
-};
-
-/**
- * This kernel is invoked by MonteCarloBarostat to adjust the periodic box volume
- */
-class CudaApplyMonteCarloBarostatKernel : public ApplyMonteCarloBarostatKernel {
-public:
-    CudaApplyMonteCarloBarostatKernel(std::string name, const Platform& platform, CudaContext& cu) : ApplyMonteCarloBarostatKernel(name, platform), cu(cu),
-            hasInitializedKernels(false) {
-    }
-    /**
-     * Initialize the kernel.
-     *
-     * @param system     the System this kernel will be applied to
-     * @param barostat   the MonteCarloBarostat this kernel will be used for
-     */
-    void initialize(const System& system, const Force& barostat);
-    /**
-     * Attempt a Monte Carlo step, scaling particle positions (or cluster centers) by a specified value.
-     * This version scales the x, y, and z positions independently.
-     * This is called BEFORE the periodic box size is modified.  It should begin by translating each particle
-     * or cluster into the first periodic box, so that coordinates will still be correct after the box size
-     * is changed.
-     *
-     * @param context    the context in which to execute this kernel
-     * @param scaleX     the scale factor by which to multiply particle x-coordinate
-     * @param scaleY     the scale factor by which to multiply particle y-coordinate
-     * @param scaleZ     the scale factor by which to multiply particle z-coordinate
-     */
-    void scaleCoordinates(ContextImpl& context, double scaleX, double scaleY, double scaleZ);
-    /**
-     * Reject the most recent Monte Carlo step, restoring the particle positions to where they were before
-     * scaleCoordinates() was last called.
-     *
-     * @param context    the context in which to execute this kernel
-     */
-    void restoreCoordinates(ContextImpl& context);
-private:
-    CudaContext& cu;
-    bool hasInitializedKernels;
-    int numMolecules;
-    CudaArray savedPositions;
-    CudaArray savedForces;
-    CudaArray moleculeAtoms;
-    CudaArray moleculeStartIndex;
-    CUfunction kernel;
-    std::vector<int> lastAtomOrder;
 };
 
 } // namespace OpenMM

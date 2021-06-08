@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2009-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2009-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -69,6 +69,14 @@ static void CL_CALLBACK errorCallback(const char* errinfo, const void* private_i
     std::cerr << "OpenCL internal error: " << errinfo << std::endl;
 }
 
+static bool isSupported(cl::Platform platform) {
+    string vendor = platform.getInfo<CL_PLATFORM_VENDOR>();
+    return (vendor.find("NVIDIA") == 0 ||
+            vendor.find("Advanced Micro Devices") == 0 ||
+            vendor.find("Apple") == 0 ||
+            vendor.find("Intel") == 0);
+}
+
 OpenCLContext::OpenCLContext(const System& system, int platformIndex, int deviceIndex, const string& precision, OpenCLPlatform::PlatformData& platformData, OpenCLContext* originalContext) :
         ComputeContext(system), platformData(platformData), numForceBuffers(0), hasAssignedPosqCharges(false),
         integration(NULL), expression(NULL), bonded(NULL), nonbonded(NULL) {
@@ -92,16 +100,23 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
         cl::Platform::get(&platforms);
         if (platformIndex < -1 || platformIndex >= (int) platforms.size())
             throw OpenMMException("Illegal value for OpenCLPlatformIndex: "+intToString(platformIndex));
+        if (platforms.size() > 1 && platformIndex == -1 && deviceIndex != -1)
+            throw OpenMMException("Specified DeviceIndex but not OpenCLPlatformIndex.  When multiple platforms are available, a platform index is needed to specify a device.");
         const int minThreadBlockSize = 32;
 
         int bestSpeed = -1;
         int bestDevice = -1;
         int bestPlatform = -1;
+        bool bestSupported = false;
         for (int j = 0; j < platforms.size(); j++) {
             // If they supplied a valid platformIndex, we only look through that platform
             if (j != platformIndex && platformIndex != -1)
                 continue;
 
+            // Always prefer a supported platform over an unsupported one.
+            bool supported = isSupported(platforms[j]);
+            if (!supported && bestSupported)
+                continue;
             string platformVendor = platforms[j].getInfo<CL_PLATFORM_VENDOR>();
             vector<cl::Device> devices;
             try {
@@ -158,10 +173,11 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
                     }
                 }
                 int speed = devices[i].getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>()*processingElementsPerComputeUnit*devices[i].getInfo<CL_DEVICE_MAX_CLOCK_FREQUENCY>();
-                if (maxSize >= minThreadBlockSize && speed > bestSpeed) {
+                if (maxSize >= minThreadBlockSize && (speed > bestSpeed || (supported && !bestSupported))) {
                     bestDevice = i;
                     bestSpeed = speed;
                     bestPlatform = j;
+                    bestSupported = supported;
                 }
             }
         }
@@ -171,6 +187,9 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
 
         if (bestDevice == -1)
             throw OpenMMException("No compatible OpenCL device is available");
+        
+        if (!bestSupported)
+            cout << "WARNING: Using an unsupported OpenCL implementation.  Results may be incorrect." << endl;
 
         vector<cl::Device> devices;
         platforms[bestPlatform].getDevices(CL_DEVICE_TYPE_ALL, &devices);
@@ -394,6 +413,8 @@ OpenCLContext::OpenCLContext(const System& system, int platformIndex, int device
     compilationDefines["ACOS"] = "acos";
     compilationDefines["ASIN"] = "asin";
     compilationDefines["ATAN"] = "atan";
+    compilationDefines["ERF"] = "erf";
+    compilationDefines["ERFC"] = "erfc";
 
     // Set defines for applying periodic boundary conditions.
 
@@ -500,8 +521,7 @@ void OpenCLContext::initialize() {
     reduceForcesKernel.setArg<cl::Buffer>(1, forceBuffers.getDeviceBuffer());
     reduceForcesKernel.setArg<cl_int>(2, paddedNumAtoms);
     reduceForcesKernel.setArg<cl_int>(3, numForceBuffers);
-    if (supports64BitGlobalAtomics)
-        addAutoclearBuffer(longForceBuffer);
+    addAutoclearBuffer(longForceBuffer);
     addAutoclearBuffer(forceBuffers);
     addAutoclearBuffer(energyBuffer);
     int numEnergyParamDerivs = energyParamDerivNames.size();
@@ -512,7 +532,9 @@ void OpenCLContext::initialize() {
             energyParamDerivBuffer.initialize<cl_float>(*this, numEnergyParamDerivs*energyBufferSize, "energyParamDerivBuffer");
         addAutoclearBuffer(energyParamDerivBuffer);
     }
-    int bufferBytes = max(velm.getSize()*velm.getElementSize(), energyBufferSize*energyBuffer.getElementSize());
+    int bufferBytes = max(max(velm.getSize()*velm.getElementSize(),
+            energyBufferSize*energyBuffer.getElementSize()),
+            longForceBuffer.getSize()*longForceBuffer.getElementSize());
     pinnedBuffer = new cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, bufferBytes);
     pinnedMemory = currentQueue.enqueueMapBuffer(*pinnedBuffer, CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, bufferBytes);
     for (int i = 0; i < numAtoms; i++) {
@@ -552,10 +574,13 @@ cl::Program OpenCLContext::createProgram(const string source, const map<string, 
     if (!options.empty())
         src << "// Compilation Options: " << options << endl << endl;
     for (auto& pair : compilationDefines) {
-        src << "#define " << pair.first;
-        if (!pair.second.empty())
-            src << " " << pair.second;
-        src << endl;
+        // Query defines to avoid duplicate variables
+        if (defines.find(pair.first) == defines.end()) {
+            src << "#define " << pair.first;
+            if (!pair.second.empty())
+                src << " " << pair.second;
+            src << endl;
+        }
     }
     if (!compilationDefines.empty())
         src << endl;
@@ -595,10 +620,7 @@ cl::Program OpenCLContext::createProgram(const string source, const map<string, 
     if (!defines.empty())
         src << endl;
     src << source << endl;
-    // Get length before using c_str() to avoid length() call invalidating the c_str() value.
-    string src_string = src.str();
-    ::size_t src_length = src_string.length();
-    cl::Program::Sources sources(1, make_pair(src_string.c_str(), src_length));
+    cl::Program::Sources sources({src.str()});
     cl::Program program(context, sources);
     try {
         program.build(vector<cl::Device>(1, device), options.c_str());
@@ -657,6 +679,19 @@ void OpenCLContext::executeKernel(cl::Kernel& kernel, int workUnits, int blockSi
         str<<"Error invoking kernel "<<kernel.getInfo<CL_KERNEL_FUNCTION_NAME>()<<": "<<err.what()<<" ("<<err.err()<<")";
         throw OpenMMException(str.str());
     }
+}
+
+int OpenCLContext::computeThreadBlockSize(double memory) const {
+    int maxShared = device.getInfo<CL_DEVICE_LOCAL_MEM_SIZE>();
+    // On some implementations, more local memory gets used than we calculate by
+    // adding up the sizes of the fields.  To be safe, include a factor of 0.5.
+    int max = (int) (0.5*maxShared/memory);
+    if (max < 64)
+        return 32;
+    int threads = 64;
+    while (threads+64 < max)
+        threads += 64;
+    return threads;
 }
 
 void OpenCLContext::clearBuffer(ArrayInterface& array) {

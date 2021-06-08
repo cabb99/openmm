@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -34,6 +34,8 @@
 
 #include "State.h"
 #include "Vec3.h"
+#include "openmm/serialization/SerializationNode.h"
+#include <iosfwd>
 #include <map>
 #include <vector>
 #include "internal/windowsExport.h"
@@ -42,6 +44,7 @@ namespace OpenMM {
 
 class Context;
 class ContextImpl;
+class System;
 
 /**
  * An Integrator defines a method for simulating a System by integrating the equations of motion.
@@ -83,6 +86,18 @@ public:
      * @param steps   the number of time steps to take
      */
     virtual void step(int steps) = 0;
+    /**
+     * Get which force groups to use for integration.  By default, all force groups
+     * are included.  This is interpreted as a set of bit flags: the forces from group i
+     * will be included if (groups&(1<<i)) != 0.
+     */
+    virtual int getIntegrationForceGroups() const;
+    /**
+     * Set which force groups to use for integration.  By default, all force groups
+     * are included.  This is interpreted as a set of bit flags: the forces from group i
+     * will be included if (groups&(1<<i)) != 0.
+     */
+    virtual void setIntegrationForceGroups(int groups);
 protected:
     friend class Context;
     friend class ContextImpl;
@@ -133,8 +148,53 @@ protected:
     virtual bool kineticEnergyRequiresForce() const {
         return true;
     }
+    /**
+     * Return a list of velocities normally distributed around a target temperature.  This may be
+     * overridden by Drude integrators to ensure that Drude pairs have their center of mass velocity
+     * assigned as a single entity, rather than treating both particles as being independent.
+     *
+     * @param system the system whose velocities are to be initialized.
+     * @param temperature the target temperature in Kelvin.
+     * @param randomSeed the random number seed to use when selecting velocities 
+     */
+    virtual std::vector<Vec3> getVelocitiesForTemperature(const System &system, double temperature, int randomSeed) const;
+    /**
+     * Get the time interval by which velocities are offset from positions.  This is used to
+     * adjust velocities when setVelocitiesToTemperature() is called on a Context.
+     */
+    virtual double getVelocityTimeOffset() const {
+        return 0.0;
+    }
+    /**
+     * This is called while writing checkpoints.  It gives the integrator a chance to write
+     * its own data.  The default implementation does nothing.
+     */
+    virtual void createCheckpoint(std::ostream& stream) const {
+    }
+    /**
+     * This is called while loading a checkpoint.  The integrator should read in whatever
+     * data it wrote in createCheckpoint() and update its internal state accordingly.
+     */
+    virtual void loadCheckpoint(std::istream& stream) {
+    }
+    /**
+     * This is called while creating a State.  The Integrator should store the values
+     * of all time-varying parameters into the SerializationNode so they can be saved
+     * as part of the state.
+     */
+    virtual void serializeParameters(SerializationNode& node) const {
+    }
+    /**
+     * This is called when loading a previously saved State.  The Integrator should
+     * load the values of all time-varying parameters from the SerializationNode.  If
+     * the node contains parameters that are not defined for this Integrator, it should
+     * throw an exception.
+     */
+    virtual void deserializeParameters(const SerializationNode& node) {
+    }
 private:
     double stepSize, constraintTol;
+    int forceGroups;
 };
 
 } // namespace OpenMM

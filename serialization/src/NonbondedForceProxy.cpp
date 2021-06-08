@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2010-2018 Stanford University and the Authors.      *
+ * Portions copyright (c) 2010-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -42,9 +42,10 @@ NonbondedForceProxy::NonbondedForceProxy() : SerializationProxy("NonbondedForce"
 }
 
 void NonbondedForceProxy::serialize(const void* object, SerializationNode& node) const {
-    node.setIntProperty("version", 3);
+    node.setIntProperty("version", 4);
     const NonbondedForce& force = *reinterpret_cast<const NonbondedForce*>(object);
     node.setIntProperty("forceGroup", force.getForceGroup());
+    node.setStringProperty("name", force.getName());
     node.setIntProperty("method", (int) force.getNonbondedMethod());
     node.setDoubleProperty("cutoff", force.getCutoffDistance());
     node.setBoolProperty("useSwitchingFunction", force.getUseSwitchingFunction());
@@ -52,6 +53,7 @@ void NonbondedForceProxy::serialize(const void* object, SerializationNode& node)
     node.setDoubleProperty("ewaldTolerance", force.getEwaldErrorTolerance());
     node.setDoubleProperty("rfDielectric", force.getReactionFieldDielectric());
     node.setIntProperty("dispersionCorrection", force.getUseDispersionCorrection());
+    node.setIntProperty("exceptionsUsePeriodic", force.getExceptionsUsePeriodicBoundaryConditions());
     double alpha;
     int nx, ny, nz;
     force.getPMEParameters(alpha, nx, ny, nz);
@@ -101,11 +103,12 @@ void NonbondedForceProxy::serialize(const void* object, SerializationNode& node)
 
 void* NonbondedForceProxy::deserialize(const SerializationNode& node) const {
     int version = node.getIntProperty("version");
-    if (version < 1 || version > 3)
+    if (version < 1 || version > 4)
         throw OpenMMException("Unsupported version number");
     NonbondedForce* force = new NonbondedForce();
     try {
         force->setForceGroup(node.getIntProperty("forceGroup", 0));
+        force->setName(node.getStringProperty("name", force->getName()));
         force->setNonbondedMethod((NonbondedForce::NonbondedMethod) node.getIntProperty("method"));
         force->setCutoffDistance(node.getDoubleProperty("cutoff"));
         force->setUseSwitchingFunction(node.getBoolProperty("useSwitchingFunction", false));
@@ -137,6 +140,8 @@ void* NonbondedForceProxy::deserialize(const SerializationNode& node) const {
             for (auto& offset : exceptionOffsets.getChildren())
                 force->addExceptionParameterOffset(offset.getStringProperty("parameter"), offset.getIntProperty("exception"), offset.getDoubleProperty("q"), offset.getDoubleProperty("sig"), offset.getDoubleProperty("eps"));
         }
+        if (version >= 4)
+            force->setExceptionsUsePeriodicBoundaryConditions(node.getIntProperty("exceptionsUsePeriodic"));
         const SerializationNode& particles = node.getChildNode("Particles");
         for (auto& particle : particles.getChildren())
             force->addParticle(particle.getDoubleProperty("q"), particle.getDoubleProperty("sig"), particle.getDoubleProperty("eps"));
