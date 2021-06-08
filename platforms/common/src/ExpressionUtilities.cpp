@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2009-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2009-2021 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -37,15 +37,17 @@ ExpressionUtilities::ExpressionUtilities(ComputeContext& context) : context(cont
 }
 
 string ExpressionUtilities::createExpressions(const map<string, ParsedExpression>& expressions, const map<string, string>& variables,
-        const vector<const TabulatedFunction*>& functions, const vector<pair<string, string> >& functionNames, const string& prefix, const string& tempType) {
+        const vector<const TabulatedFunction*>& functions, const vector<pair<string, string> >& functionNames, const string& prefix,
+        const string& tempType, bool distancesArePeriodic) {
     vector<pair<ExpressionTreeNode, string> > variableNodes;
     for (map<string, string>::const_iterator iter = variables.begin(); iter != variables.end(); ++iter)
         variableNodes.push_back(make_pair(ExpressionTreeNode(new Operation::Variable(iter->first)), iter->second));
-    return createExpressions(expressions, variableNodes, functions, functionNames, prefix, tempType);
+    return createExpressions(expressions, variableNodes, functions, functionNames, prefix, tempType, distancesArePeriodic);
 }
 
 string ExpressionUtilities::createExpressions(const map<string, ParsedExpression>& expressions, const vector<pair<ExpressionTreeNode, string> >& variables,
-        const vector<const TabulatedFunction*>& functions, const vector<pair<string, string> >& functionNames, const string& prefix, const string& tempType) {
+        const vector<const TabulatedFunction*>& functions, const vector<pair<string, string> >& functionNames, const string& prefix, const string& tempType,
+        bool distancesArePeriodic) {
     stringstream out;
     vector<ParsedExpression> allExpressions;
     for (map<string, ParsedExpression>::const_iterator iter = expressions.begin(); iter != expressions.end(); ++iter)
@@ -53,7 +55,7 @@ string ExpressionUtilities::createExpressions(const map<string, ParsedExpression
     vector<pair<ExpressionTreeNode, string> > temps = variables;
     vector<vector<double> > functionParams = computeFunctionParameters(functions);
     for (map<string, ParsedExpression>::const_iterator iter = expressions.begin(); iter != expressions.end(); ++iter) {
-        processExpression(out, iter->second.getRootNode(), temps, functions, functionNames, prefix, functionParams, allExpressions, tempType);
+        processExpression(out, iter->second.getRootNode(), temps, functions, functionNames, prefix, functionParams, allExpressions, tempType, distancesArePeriodic);
         out << iter->first << getTempName(iter->second.getRootNode(), temps) << ";\n";
     }
     return out.str();
@@ -61,16 +63,16 @@ string ExpressionUtilities::createExpressions(const map<string, ParsedExpression
 
 void ExpressionUtilities::processExpression(stringstream& out, const ExpressionTreeNode& node, vector<pair<ExpressionTreeNode, string> >& temps,
         const vector<const TabulatedFunction*>& functions, const vector<pair<string, string> >& functionNames, const string& prefix, const vector<vector<double> >& functionParams,
-        const vector<ParsedExpression>& allExpressions, const string& tempType) {
+        const vector<ParsedExpression>& allExpressions, const string& tempType, bool distancesArePeriodic) {
     for (int i = 0; i < (int) temps.size(); i++)
         if (temps[i].first == node)
             return;
     for (int i = 0; i < (int) node.getChildren().size(); i++)
-        processExpression(out, node.getChildren()[i], temps, functions, functionNames, prefix, functionParams, allExpressions, tempType);
+        processExpression(out, node.getChildren()[i], temps, functions, functionNames, prefix, functionParams, allExpressions, tempType, distancesArePeriodic);
     string name = prefix+context.intToString(temps.size());
     bool hasRecordedNode = false;
     bool isVecType = (tempType[tempType.size()-1] == '3');
-    
+
     out << tempType << " " << name << " = ";
     switch (node.getOperation().getId()) {
         case Operation::CONSTANT:
@@ -109,43 +111,136 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
                 temps.push_back(make_pair(*nodes[j], name2));
             }
             out << "{\n";
-            if (node.getOperation().getName() == "periodicdistance") {
-                // This is the periodicdistance() function.
+            if (node.getOperation().getName() == "pointdistance" || node.getOperation().getName() == "periodicdistance") {
+                // This is a pointdistance() or periodicdistance() function.
 
-                out << tempType << "3 periodicDistance_delta = make_real3(";
-                for (int i = 0; i < 3; i++) {
-                    if (i > 0)
-                        out << ", ";
-                    out << getTempName(node.getChildren()[i], temps) << "-" << getTempName(node.getChildren()[i+3], temps);
-                }
-                out << ");\n";
-                out << "APPLY_PERIODIC_TO_DELTA(periodicDistance_delta)\n";
-                out << tempType << " periodicDistance_r2 = periodicDistance_delta.x*periodicDistance_delta.x + periodicDistance_delta.y*periodicDistance_delta.y + periodicDistance_delta.z*periodicDistance_delta.z;\n";
-                out << tempType << " periodicDistance_rinv = RSQRT(periodicDistance_r2);\n";
+                bool periodic = (node.getOperation().getName() == "periodicdistance" || distancesArePeriodic);
+                computeDelta(out, "distance_delta", node, 0, 3, tempType, periodic, temps);
+                out << tempType << " distance_rinv = RSQRT(distance_delta.w);\n";
                 for (int j = 0; j < nodes.size(); j++) {
                     const vector<int>& derivOrder = dynamic_cast<const Operation::Custom*>(&nodes[j]->getOperation())->getDerivOrder();
                     int argIndex = -1;
                     for (int k = 0; k < 6; k++) {
                         if (derivOrder[k] > 0) {
                             if (derivOrder[k] > 1 || argIndex != -1)
-                                throw OpenMMException("Unsupported derivative of periodicdistance"); // Should be impossible for this to happen.
+                                throw OpenMMException("Unsupported derivative of "+node.getOperation().getName()); // Should be impossible for this to happen.
                             argIndex = k;
                         }
                     }
                     if (argIndex == -1)
-                        out << nodeNames[j] << " = RECIP(periodicDistance_rinv);\n";
+                        out << nodeNames[j] << " = RECIP(distance_rinv);\n";
                     else if (argIndex == 0)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? periodicDistance_delta.x*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? distance_delta.x*distance_rinv : 0);\n";
                     else if (argIndex == 1)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? periodicDistance_delta.y*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? distance_delta.y*distance_rinv : 0);\n";
                     else if (argIndex == 2)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? periodicDistance_delta.z*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? distance_delta.z*distance_rinv : 0);\n";
                     else if (argIndex == 3)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? -periodicDistance_delta.x*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? -distance_delta.x*distance_rinv : 0);\n";
                     else if (argIndex == 4)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? -periodicDistance_delta.y*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? -distance_delta.y*distance_rinv : 0);\n";
                     else if (argIndex == 5)
-                        out << nodeNames[j] << " = (periodicDistance_r2 > 0 ? -periodicDistance_delta.z*periodicDistance_rinv : 0);\n";
+                        out << nodeNames[j] << " = (distance_delta.w > 0 ? -distance_delta.z*distance_rinv : 0);\n";
+                }
+            }
+            else if (node.getOperation().getName() == "pointangle") {
+                // This is a pointangle() function.
+
+                computeDelta(out, "angle_delta21", node, 3, 0, tempType, distancesArePeriodic, temps);
+                computeDelta(out, "angle_delta23", node, 3, 6, tempType, distancesArePeriodic, temps);
+                out << tempType << " angle_theta = computeAngle(angle_delta21, angle_delta23);\n";
+                out << tempType << "3 angle_crossProd = trimTo3(cross(angle_delta23, angle_delta21));\n";
+                out << "real angle_lengthCross = max(SQRT(dot(angle_crossProd, angle_crossProd)), (real) 1e-6f);\n";
+                out << "real3 angle_deltaCross0 = cross(trimTo3(angle_delta21), angle_crossProd)/(angle_delta21.w*angle_lengthCross);\n";
+                out << "real3 angle_deltaCross2 = -cross(trimTo3(angle_delta23), angle_crossProd)/(angle_delta23.w*angle_lengthCross);\n";
+                out << "real3 angle_deltaCross1 = -(angle_deltaCross0+angle_deltaCross2);\n";
+                for (int j = 0; j < nodes.size(); j++) {
+                    const vector<int>& derivOrder = dynamic_cast<const Operation::Custom*>(&nodes[j]->getOperation())->getDerivOrder();
+                    int argIndex = -1;
+                    for (int k = 0; k < 9; k++) {
+                        if (derivOrder[k] > 0) {
+                            if (derivOrder[k] > 1 || argIndex != -1)
+                                throw OpenMMException("Unsupported derivative of "+node.getOperation().getName()); // Should be impossible for this to happen.
+                            argIndex = k;
+                        }
+                    }
+                    if (argIndex == -1)
+                        out << nodeNames[j] << " = angle_theta;\n";
+                    else if (argIndex == 0)
+                        out << nodeNames[j] << " = angle_deltaCross0.x;\n";
+                    else if (argIndex == 1)
+                        out << nodeNames[j] << " = angle_deltaCross0.y;\n";
+                    else if (argIndex == 2)
+                        out << nodeNames[j] << " = angle_deltaCross0.z;\n";
+                    else if (argIndex == 3)
+                        out << nodeNames[j] << " = angle_deltaCross1.x;\n";
+                    else if (argIndex == 4)
+                        out << nodeNames[j] << " = angle_deltaCross1.y;\n";
+                    else if (argIndex == 5)
+                        out << nodeNames[j] << " = angle_deltaCross1.z;\n";
+                    else if (argIndex == 6)
+                        out << nodeNames[j] << " = angle_deltaCross2.x;\n";
+                    else if (argIndex == 7)
+                        out << nodeNames[j] << " = angle_deltaCross2.y;\n";
+                    else if (argIndex == 8)
+                        out << nodeNames[j] << " = angle_deltaCross2.z;\n";
+                }
+            }
+            else if (node.getOperation().getName() == "pointdihedral") {
+                // This is a pointdihedral() function.
+
+                computeDelta(out, "dihedral_delta12", node, 0, 3, tempType, distancesArePeriodic, temps);
+                computeDelta(out, "dihedral_delta32", node, 6, 3, tempType, distancesArePeriodic, temps);
+                computeDelta(out, "dihedral_delta34", node, 6, 9, tempType, distancesArePeriodic, temps);
+                out << tempType << "4 dihedral_cross1 = computeCross(dihedral_delta12, dihedral_delta32);\n";
+                out << tempType << "4 dihedral_cross2 = computeCross(dihedral_delta32, dihedral_delta34);\n";
+                out << tempType << " dihedral_theta = computeAngle(dihedral_cross1, dihedral_cross2);\n";
+                out << "dihedral_theta *= (dihedral_delta12.x*dihedral_cross2.x + dihedral_delta12.y*dihedral_cross2.y + dihedral_delta12.z*dihedral_cross2.z < 0 ? -1 : 1);\n";
+                out << tempType << " dihedral_r = SQRT(dihedral_delta32.w);\n";
+                out << tempType << "4 dihedral_ff;\n";
+                out << "dihedral_ff.x = -dihedral_r/dihedral_cross1.w;\n";
+                out << "dihedral_ff.y = (dihedral_delta12.x*dihedral_delta32.x + dihedral_delta12.y*dihedral_delta32.y + dihedral_delta12.z*dihedral_delta32.z)/dihedral_delta32.w;\n";
+                out << "dihedral_ff.z = (dihedral_delta34.x*dihedral_delta32.x + dihedral_delta34.y*dihedral_delta32.y + dihedral_delta34.z*dihedral_delta32.z)/dihedral_delta32.w;\n";
+                out << "dihedral_ff.w = dihedral_r/dihedral_cross2.w;\n";
+                out << tempType << "3 dihedral_internalF0 = dihedral_ff.x*trimTo3(dihedral_cross1);\n";
+                out << tempType << "3 dihedral_internalF3 = dihedral_ff.w*trimTo3(dihedral_cross2);\n";
+                out << tempType << "3 dihedral_s = dihedral_ff.y*dihedral_internalF0 - dihedral_ff.z*dihedral_internalF3;\n";
+                for (int j = 0; j < nodes.size(); j++) {
+                    const vector<int>& derivOrder = dynamic_cast<const Operation::Custom*>(&nodes[j]->getOperation())->getDerivOrder();
+                    int argIndex = -1;
+                    for (int k = 0; k < 12; k++) {
+                        if (derivOrder[k] > 0) {
+                            if (derivOrder[k] > 1 || argIndex != -1)
+                                throw OpenMMException("Unsupported derivative of "+node.getOperation().getName()); // Should be impossible for this to happen.
+                            argIndex = k;
+                        }
+                    }
+                    if (argIndex == -1)
+                        out << nodeNames[j] << " = dihedral_theta;\n";
+                    else if (argIndex == 0)
+                        out << nodeNames[j] << " = -dihedral_internalF0.x;\n";
+                    else if (argIndex == 1)
+                        out << nodeNames[j] << " = -dihedral_internalF0.y;\n";
+                    else if (argIndex == 2)
+                        out << nodeNames[j] << " = -dihedral_internalF0.z;\n";
+                    else if (argIndex == 3)
+                        out << nodeNames[j] << " = -dihedral_s.x+dihedral_internalF0.x;\n";
+                    else if (argIndex == 4)
+                        out << nodeNames[j] << " = -dihedral_s.y+dihedral_internalF0.y;\n";
+                    else if (argIndex == 5)
+                        out << nodeNames[j] << " = -dihedral_s.z+dihedral_internalF0.z;\n";
+                    else if (argIndex == 6)
+                        out << nodeNames[j] << " = dihedral_s.x+dihedral_internalF3.x;\n";
+                    else if (argIndex == 7)
+                        out << nodeNames[j] << " = dihedral_s.y+dihedral_internalF3.y;\n";
+                    else if (argIndex == 8)
+                        out << nodeNames[j] << " = dihedral_s.z+dihedral_internalF3.z;\n";
+                    else if (argIndex == 9)
+                        out << nodeNames[j] << " = -dihedral_internalF3.x;\n";
+                    else if (argIndex == 10)
+                        out << nodeNames[j] << " = -dihedral_internalF3.y;\n";
+                    else if (argIndex == 11)
+                        out << nodeNames[j] << " = -dihedral_internalF3.z;\n";
                 }
             }
             else if (node.getOperation().getName() == "dot") {
@@ -215,7 +310,7 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
             }
             else {
                 // This is a tabulated function.
-                
+
                 int i;
                 for (i = 0; i < (int) functionNames.size() && functionNames[i].first != node.getOperation().getName(); i++)
                     ;
@@ -238,11 +333,19 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
                 for (auto& suffix : suffixes) {
                     out << "{\n";
                     if (dynamic_cast<const Continuous1DFunction*>(functions[i]) != NULL) {
+                        int periodic = functionParams[i][4];
                         out << "real x = " << getTempName(node.getChildren()[0], temps) << suffix << ";\n";
-                        out << "if (x >= " << paramsFloat[0] << " && x <= " << paramsFloat[1] << ") {\n";
-                        out << "x = (x - " << paramsFloat[0] << ")*" << paramsFloat[2] << ";\n";
-                        out << "int index = (int) (floor(x));\n";
-                        out << "index = min(index, (int) " << paramsInt[3] << ");\n";
+                        if (periodic) {
+                            out << "x = (x - " << paramsFloat[0] << ")*" << paramsFloat[5]<< ";\n";
+                            out << "x = (x - floor(x))*" << paramsFloat[6] << ";\n";
+                            out << "int index = (int) (floor(x));\n";
+                        }
+                        else {
+                            out << "if (x >= " << paramsFloat[0] << " && x <= " << paramsFloat[1] << ") {\n";
+                            out << "x = (x - " << paramsFloat[0] << ")*" << paramsFloat[2] << ";\n";
+                            out << "int index = (int) (floor(x));\n";
+                            out << "index = min(index, (int) " << paramsInt[3] << ");\n";
+                        }
                         out << "float4 coeff = " << functionNames[i].second << "[index];\n";
                         out << "real b = x-index;\n";
                         out << "real a = 1.0f-b;\n";
@@ -253,16 +356,28 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
                             else
                                 out << nodeNames[j] << suffix << " = (coeff.y-coeff.x)*" << paramsFloat[2] << "+((1.0f-3.0f*a*a)*coeff.z+(3.0f*b*b-1.0f)*coeff.w)/" << paramsFloat[2] << ";\n";
                         }
-                        out << "}\n";
-                    }
+                        if (!periodic)
+                            out << "}\n";
+                      }
                     else if (dynamic_cast<const Continuous2DFunction*>(functions[i]) != NULL) {
+                        int periodic = functionParams[i][8];
                         out << "real x = " << getTempName(node.getChildren()[0], temps) << suffix << ";\n";
                         out << "real y = " << getTempName(node.getChildren()[1], temps) << suffix << ";\n";
-                        out << "if (x >= " << paramsFloat[2] << " && x <= " << paramsFloat[3] << " && y >= " << paramsFloat[4] << " && y <= " << paramsFloat[5] << ") {\n";
-                        out << "x = (x - " << paramsFloat[2] << ")*" << paramsFloat[6] << ";\n";
-                        out << "y = (y - " << paramsFloat[4] << ")*" << paramsFloat[7] << ";\n";
-                        out << "int s = min((int) floor(x), " << paramsInt[0] << "-1);\n";
-                        out << "int t = min((int) floor(y), " << paramsInt[1] << "-1);\n";
+                        if (periodic) {
+                            out << "x = (x - " << paramsFloat[2] << ")*" << paramsFloat[9] << ";\n";
+                            out << "y = (y - " << paramsFloat[4] << ")*" << paramsFloat[10] << ";\n";
+                            out << "x = (x - floor(x))*" << paramsFloat[0] << ";\n";
+                            out << "y = (y - floor(y))*" << paramsFloat[1] << ";\n";
+                            out << "int s = (int) floor(x);\n";
+                            out << "int t = (int) floor(y);\n";
+                        }
+                        else {
+                            out << "if (x >= " << paramsFloat[2] << " && x <= " << paramsFloat[3] << " && y >= " << paramsFloat[4] << " && y <= " << paramsFloat[5] << ") {\n";
+                            out << "x = (x - " << paramsFloat[2] << ")*" << paramsFloat[6] << ";\n";
+                            out << "y = (y - " << paramsFloat[4] << ")*" << paramsFloat[7] << ";\n";
+                            out << "int s = min((int) floor(x), " << paramsInt[0] << "-1);\n";
+                            out << "int t = min((int) floor(y), " << paramsInt[1] << "-1);\n";
+                        }
                         out << "int coeffIndex = 4*(s+" << paramsInt[0] << "*t);\n";
                         out << "float4 c[4];\n";
                         for (int j = 0; j < 4; j++)
@@ -294,19 +409,34 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
                             else
                                 throw OpenMMException("Unsupported derivative order for Continuous2DFunction");
                         }
-                        out << "}\n";
+                        if (!periodic)
+                            out << "}\n";
                     }
                     else if (dynamic_cast<const Continuous3DFunction*>(functions[i]) != NULL) {
+                        int periodic = functionParams[i][12];
                         out << "real x = " << getTempName(node.getChildren()[0], temps) << suffix << ";\n";
                         out << "real y = " << getTempName(node.getChildren()[1], temps) << suffix << ";\n";
                         out << "real z = " << getTempName(node.getChildren()[2], temps) << suffix << ";\n";
-                        out << "if (x >= " << paramsFloat[3] << " && x <= " << paramsFloat[4] << " && y >= " << paramsFloat[5] << " && y <= " << paramsFloat[6] << " && z >= " << paramsFloat[7] << " && z <= " << paramsFloat[8] << ") {\n";
-                        out << "x = (x - " << paramsFloat[3] << ")*" << paramsFloat[9] << ";\n";
-                        out << "y = (y - " << paramsFloat[5] << ")*" << paramsFloat[10] << ";\n";
-                        out << "z = (z - " << paramsFloat[7] << ")*" << paramsFloat[11] << ";\n";
-                        out << "int s = min((int) floor(x), " << paramsInt[0] << "-1);\n";
-                        out << "int t = min((int) floor(y), " << paramsInt[1] << "-1);\n";
-                        out << "int u = min((int) floor(z), " << paramsInt[2] << "-1);\n";
+                        if (periodic) {
+                            out << "x = (x - " << paramsFloat[3] << ")*" << paramsFloat[13] << ";\n";
+                            out << "y = (y - " << paramsFloat[5] << ")*" << paramsFloat[14] << ";\n";
+                            out << "z = (z - " << paramsFloat[7] << ")*" << paramsFloat[15] << ";\n";
+                            out << "x = (x - floor(x))*" << paramsFloat[0] << ";\n";
+                            out << "y = (y - floor(y))*" << paramsFloat[1] << ";\n";
+                            out << "z = (z - floor(z))*" << paramsFloat[2] << ";\n";
+                            out << "int s = (int) floor(x);\n";
+                            out << "int t = (int) floor(y);\n";
+                            out << "int u = (int) floor(z);\n";
+                        }
+                        else {
+                            out << "if (x >= " << paramsFloat[3] << " && x <= " << paramsFloat[4] << " && y >= " << paramsFloat[5] << " && y <= " << paramsFloat[6] << " && z >= " << paramsFloat[7] << " && z <= " << paramsFloat[8] << ") {\n";
+                            out << "x = (x - " << paramsFloat[3] << ")*" << paramsFloat[9] << ";\n";
+                            out << "y = (y - " << paramsFloat[5] << ")*" << paramsFloat[10] << ";\n";
+                            out << "z = (z - " << paramsFloat[7] << ")*" << paramsFloat[11] << ";\n";
+                            out << "int s = min((int) floor(x), " << paramsInt[0] << "-1);\n";
+                            out << "int t = min((int) floor(y), " << paramsInt[1] << "-1);\n";
+                            out << "int u = min((int) floor(z), " << paramsInt[2] << "-1);\n";
+                        }
                         out << "int coeffIndex = 16*(s+" << paramsInt[0] << "*(t+" << paramsInt[1] << "*u));\n";
                         out << "float4 c[16];\n";
                         for (int j = 0; j < 16; j++)
@@ -360,7 +490,8 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
                             else
                                 throw OpenMMException("Unsupported derivative order for Continuous3DFunction");
                         }
-                        out << "}\n";
+                        if (!periodic)
+                            out << "}\n";
                     }
                     else if (dynamic_cast<const Discrete1DFunction*>(functions[i]) != NULL) {
                         for (int j = 0; j < nodes.size(); j++) {
@@ -446,7 +577,7 @@ void ExpressionUtilities::processExpression(stringstream& out, const ExpressionT
             out << "-" << getTempName(node.getChildren()[0], temps);
             break;
         case Operation::SQRT:
-            callFunction(out, "sqrtf", "sqrt", getTempName(node.getChildren()[0], temps), tempType); 
+            callFunction(out, "sqrtf", "sqrt", getTempName(node.getChildren()[0], temps), tempType);
             break;
         case Operation::EXP:
             callFunction(out, "expf", "exp", getTempName(node.getChildren()[0], temps), tempType);
@@ -675,19 +806,19 @@ void ExpressionUtilities::findRelatedCustomFunctions(const ExpressionTreeNode& n
             vector<const Lepton::ExpressionTreeNode*>& nodes) {
     if (searchNode.getOperation().getId() == Operation::CUSTOM && node.getOperation().getName() == searchNode.getOperation().getName()) {
         // Make sure the arguments are identical.
-        
+
         for (int i = 0; i < (int) node.getChildren().size(); i++)
             if (node.getChildren()[i] != searchNode.getChildren()[i])
                 return;
-        
+
         // See if we already have an identical node.
-        
+
         for (int i = 0; i < (int) nodes.size(); i++)
             if (*nodes[i] == searchNode)
                 return;
-        
+
         // Add the node.
-        
+
         nodes.push_back(&searchNode);
     }
     else
@@ -720,11 +851,12 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
         vector<double> values;
         double min, max;
         fn.getFunctionParameters(values, min, max);
+        bool periodic = fn.getPeriodic();
         int numValues = values.size();
         vector<double> x(numValues), derivs;
         for (int i = 0; i < numValues; i++)
             x[i] = min+i*(max-min)/(numValues-1);
-        SplineFitter::createNaturalSpline(x, values, derivs);
+        SplineFitter::createSpline(x, values, periodic, derivs);
         vector<float> f(4*(numValues-1));
         for (int i = 0; i < (int) values.size()-1; i++) {
             f[4*i] = (float) values[i];
@@ -743,13 +875,14 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
         int xsize, ysize;
         double xmin, xmax, ymin, ymax;
         fn.getFunctionParameters(xsize, ysize, values, xmin, xmax, ymin, ymax);
+        bool periodic = fn.getPeriodic();
         vector<double> x(xsize), y(ysize);
         for (int i = 0; i < xsize; i++)
             x[i] = xmin+i*(xmax-xmin)/(xsize-1);
         for (int i = 0; i < ysize; i++)
             y[i] = ymin+i*(ymax-ymin)/(ysize-1);
         vector<vector<double> > c;
-        SplineFitter::create2DNaturalSpline(x, y, values, c);
+        SplineFitter::create2DSpline(x, y, values, periodic, c);
         vector<float> f(16*c.size());
         for (int i = 0; i < (int) c.size(); i++) {
             for (int j = 0; j < 16; j++)
@@ -766,6 +899,7 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
         int xsize, ysize, zsize;
         double xmin, xmax, ymin, ymax, zmin, zmax;
         fn.getFunctionParameters(xsize, ysize, zsize, values, xmin, xmax, ymin, ymax, zmin, zmax);
+        bool periodic = fn.getPeriodic();
         vector<double> x(xsize), y(ysize), z(zsize);
         for (int i = 0; i < xsize; i++)
             x[i] = xmin+i*(xmax-xmin)/(xsize-1);
@@ -774,7 +908,7 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
         for (int i = 0; i < zsize; i++)
             z[i] = zmin+i*(zmax-zmin)/(zsize-1);
         vector<vector<double> > c;
-        SplineFitter::create3DNaturalSpline(x, y, z, values, c);
+        SplineFitter::create3DSpline(x, y, z, values, periodic, c);
         vector<float> f(64*c.size());
         for (int i = 0; i < (int) c.size(); i++) {
             for (int j = 0; j < 64; j++)
@@ -785,7 +919,7 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
     }
     if (dynamic_cast<const Discrete1DFunction*>(&function) != NULL) {
         // Record the tabulated values.
-        
+
         const Discrete1DFunction& fn = dynamic_cast<const Discrete1DFunction&>(function);
         vector<double> values;
         fn.getFunctionParameters(values);
@@ -798,7 +932,7 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
     }
     if (dynamic_cast<const Discrete2DFunction*>(&function) != NULL) {
         // Record the tabulated values.
-        
+
         const Discrete2DFunction& fn = dynamic_cast<const Discrete2DFunction&>(function);
         int xsize, ysize;
         vector<double> values;
@@ -812,7 +946,7 @@ vector<float> ExpressionUtilities::computeFunctionCoefficients(const TabulatedFu
     }
     if (dynamic_cast<const Discrete3DFunction*>(&function) != NULL) {
         // Record the tabulated values.
-        
+
         const Discrete3DFunction& fn = dynamic_cast<const Discrete3DFunction&>(function);
         int xsize, ysize, zsize;
         vector<double> values;
@@ -835,10 +969,14 @@ vector<vector<double> > ExpressionUtilities::computeFunctionParameters(const vec
             vector<double> values;
             double min, max;
             fn.getFunctionParameters(values, min, max);
+            int periodic = (int) fn.getPeriodic();
             params[i].push_back(min);
             params[i].push_back(max);
             params[i].push_back((values.size()-1)/(max-min));
             params[i].push_back(values.size()-2);
+            params[i].push_back(periodic);
+            params[i].push_back(1.0/(max-min));
+            params[i].push_back(values.size()-1);
         }
         else if (dynamic_cast<const Continuous2DFunction*>(functions[i]) != NULL) {
             const Continuous2DFunction& fn = dynamic_cast<const Continuous2DFunction&>(*functions[i]);
@@ -846,6 +984,7 @@ vector<vector<double> > ExpressionUtilities::computeFunctionParameters(const vec
             int xsize, ysize;
             double xmin, xmax, ymin, ymax;
             fn.getFunctionParameters(xsize, ysize, values, xmin, xmax, ymin, ymax);
+            int periodic = (int) fn.getPeriodic();
             params[i].push_back(xsize-1);
             params[i].push_back(ysize-1);
             params[i].push_back(xmin);
@@ -854,6 +993,9 @@ vector<vector<double> > ExpressionUtilities::computeFunctionParameters(const vec
             params[i].push_back(ymax);
             params[i].push_back((xsize-1)/(xmax-xmin));
             params[i].push_back((ysize-1)/(ymax-ymin));
+            params[i].push_back(periodic);
+            params[i].push_back(1.0/(xmax-xmin));
+            params[i].push_back(1.0/(ymax-ymin));
         }
         else if (dynamic_cast<const Continuous3DFunction*>(functions[i]) != NULL) {
             const Continuous3DFunction& fn = dynamic_cast<const Continuous3DFunction&>(*functions[i]);
@@ -861,6 +1003,7 @@ vector<vector<double> > ExpressionUtilities::computeFunctionParameters(const vec
             int xsize, ysize, zsize;
             double xmin, xmax, ymin, ymax, zmin, zmax;
             fn.getFunctionParameters(xsize, ysize, zsize, values, xmin, xmax, ymin, ymax, zmin, zmax);
+            int periodic = (int) fn.getPeriodic();
             params[i].push_back(xsize-1);
             params[i].push_back(ysize-1);
             params[i].push_back(zsize-1);
@@ -873,6 +1016,10 @@ vector<vector<double> > ExpressionUtilities::computeFunctionParameters(const vec
             params[i].push_back((xsize-1)/(xmax-xmin));
             params[i].push_back((ysize-1)/(ymax-ymin));
             params[i].push_back((zsize-1)/(zmax-zmin));
+            params[i].push_back(periodic);
+            params[i].push_back(1.0/(xmax-xmin));
+            params[i].push_back(1.0/(ymax-ymin));
+            params[i].push_back(1.0/(zmax-zmin));
         }
         else if (dynamic_cast<const Discrete1DFunction*>(functions[i]) != NULL) {
             const Discrete1DFunction& fn = dynamic_cast<const Discrete1DFunction&>(*functions[i]);
@@ -945,4 +1092,20 @@ void ExpressionUtilities::callFunction2(stringstream& out, string singleFn, stri
     }
     else
         out<<fn<<"(("<<tempType<<") "<<arg1<<", ("<<tempType<<") "<<arg2<<")";
+}
+
+void ExpressionUtilities::computeDelta(stringstream& out, const string& varName, const ExpressionTreeNode& node, int index1, int index2, const string& tempType, bool periodic, const vector<pair<ExpressionTreeNode, string> >& temps) {
+    // Compute the (optionally periodic) displacement between two points, storing the distance
+    // into the w component.
+    
+    out << tempType << "4 " << varName << " = make_" << tempType << "4(";
+    for (int i = 0; i < 3; i++) {
+        if (i > 0)
+            out << ", ";
+        out << getTempName(node.getChildren()[index1+i], temps) << "-" << getTempName(node.getChildren()[index2+i], temps);
+    }
+    out << ", 0);\n";
+    if (periodic)
+        out << "APPLY_PERIODIC_TO_DELTA(" << varName << ")\n";
+    out << varName << ".w = " << varName << ".x*" << varName << ".x + " << varName << ".y*" << varName << ".y + " << varName << ".z*" << varName << ".z;\n";
 }

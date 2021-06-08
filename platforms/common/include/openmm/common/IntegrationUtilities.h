@@ -130,19 +130,13 @@ public:
      * @param timeShift   the amount by which to shift the velocities in time
      */
     double computeKineticEnergy(double timeShift);
-    /**
-     * Get the data structure that holds the state of all Nose-Hoover chains
-     */
-    std::map<int, ComputeArray>& getNoseHooverChainState() {
-        return noseHooverChainState;
-    }
 protected:
     virtual void applyConstraintsImpl(bool constrainVelocities, double tol) = 0;
     ComputeContext& context;
     ComputeKernel settlePosKernel, settleVelKernel;
     ComputeKernel shakePosKernel, shakeVelKernel;
     ComputeKernel ccmaDirectionsKernel, ccmaPosForceKernel, ccmaVelForceKernel;
-    ComputeKernel ccmaMultiplyKernel, ccmaUpdateKernel;
+    ComputeKernel ccmaMultiplyKernel, ccmaUpdateKernel, ccmaFullKernel;
     ComputeKernel vsitePositionKernel, vsiteForceKernel, vsiteSaveForcesKernel;
     ComputeKernel randomKernel, timeShiftKernel;
     ComputeArray posDelta;
@@ -154,6 +148,7 @@ protected:
     ComputeArray randomSeed;
     ComputeArray stepSize;
     ComputeArray ccmaAtoms;
+    ComputeArray ccmaConstraintAtoms;
     ComputeArray ccmaDistance;
     ComputeArray ccmaReducedMass;
     ComputeArray ccmaAtomConstraints;
@@ -174,7 +169,6 @@ protected:
     ComputeArray vsiteLocalCoordsWeights;
     ComputeArray vsiteLocalCoordsPos;
     ComputeArray vsiteLocalCoordsStartIndex;
-    std::map<int, ComputeArray> noseHooverChainState;
     int randomPos, lastSeed, numVsites;
     bool hasOverlappingVsites;
     mm_double2 lastStepSize;

@@ -9,7 +9,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -35,9 +35,67 @@
 #include "openmm/internal/CompiledExpressionSet.h"
 #include "openmm/internal/CustomIntegratorUtilities.h"
 #include "lepton/CompiledExpression.h"
+#include "lepton/ExpressionProgram.h"
 
 namespace OpenMM {
 
+
+/**
+ * This kernel modifies the positions of particles to enforce distance constraints.
+ */
+class CommonApplyConstraintsKernel : public ApplyConstraintsKernel {
+public:
+    CommonApplyConstraintsKernel(std::string name, const Platform& platform, ComputeContext& cc) : ApplyConstraintsKernel(name, platform),
+            cc(cc), hasInitializedKernel(false) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     */
+    void initialize(const System& system);
+    /**
+     * Update particle positions to enforce constraints.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param tol        the distance tolerance within which constraints must be satisfied.
+     */
+    void apply(ContextImpl& context, double tol);
+    /**
+     * Update particle velocities to enforce constraints.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param tol        the velocity tolerance within which constraints must be satisfied.
+     */
+    void applyToVelocities(ContextImpl& context, double tol);
+private:
+    ComputeContext& cc;
+    bool hasInitializedKernel;
+    ComputeKernel applyDeltasKernel;
+};
+
+/**
+ * This kernel recomputes the positions of virtual sites.
+ */
+class CommonVirtualSitesKernel : public VirtualSitesKernel {
+public:
+    CommonVirtualSitesKernel(std::string name, const Platform& platform, ComputeContext& cc) : VirtualSitesKernel(name, platform), cc(cc) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     */
+    void initialize(const System& system);
+    /**
+     * Compute the virtual site locations.
+     *
+     * @param context    the context in which to execute this kernel
+     */
+    void computePositions(ContextImpl& context);
+private:
+    ComputeContext& cc;
+};
 
 /**
  * This kernel is invoked by HarmonicBondForce to calculate the forces acting on the system and the energy of the system.
@@ -886,6 +944,65 @@ private:
 };
 
 /**
+ * This kernel is invoked by CustomCVForce to calculate the forces acting on the system and the energy of the system.
+ */
+class CommonCalcCustomCVForceKernel : public CalcCustomCVForceKernel {
+public:
+    CommonCalcCustomCVForceKernel(std::string name, const Platform& platform, ComputeContext& cc) : CalcCustomCVForceKernel(name, platform),
+            cc(cc), hasInitializedListeners(false) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param force      the CustomCVForce this kernel will be used for
+     * @param innerContext   the context created by the CustomCVForce for computing collective variables
+     */
+    void initialize(const System& system, const CustomCVForce& force, ContextImpl& innerContext);
+    /**
+     * Execute the kernel to calculate the forces and/or energy.
+     *
+     * @param context        the context in which to execute this kernel
+     * @param innerContext   the context created by the CustomCVForce for computing collective variables
+     * @param includeForces  true if forces should be calculated
+     * @param includeEnergy  true if the energy should be calculated
+     * @return the potential energy due to the force
+     */
+    double execute(ContextImpl& context, ContextImpl& innerContext, bool includeForces, bool includeEnergy);
+    /**
+     * Copy state information to the inner context.
+     *
+     * @param context        the context in which to execute this kernel
+     * @param innerContext   the context created by the CustomCVForce for computing collective variables
+     */
+    void copyState(ContextImpl& context, ContextImpl& innerContext);
+    /**
+     * Copy changed parameters over to a context.
+     *
+     * @param context    the context to copy parameters to
+     * @param force      the CustomCVForce to copy the parameters from
+     */
+    void copyParametersToContext(ContextImpl& context, const CustomCVForce& force);
+    /**
+     * Get the ComputeContext corresponding to the inner Context.
+     */
+    virtual ComputeContext& getInnerComputeContext(ContextImpl& innerContext) = 0;
+private:
+    class ForceInfo;
+    class ReorderListener;
+    ComputeContext& cc;
+    bool hasInitializedListeners;
+    Lepton::ExpressionProgram energyExpression;
+    std::vector<std::string> variableNames, paramDerivNames, globalParameterNames;
+    std::vector<Lepton::ExpressionProgram> variableDerivExpressions;
+    std::vector<Lepton::ExpressionProgram> paramDerivExpressions;
+    std::vector<ComputeArray> cvForces;
+    ComputeArray invAtomOrder;
+    ComputeArray innerInvAtomOrder;
+    ComputeKernel copyStateKernel, copyForcesKernel, addForcesKernel;
+};
+
+/**
  * This kernel is invoked by VerletIntegrator to take one time step.
  */
 class CommonIntegrateVerletStepKernel : public IntegrateVerletStepKernel {
@@ -958,44 +1075,154 @@ private:
 };
 
 /**
- * This kernel is invoked by BAOABLangevinIntegrator to take one time step.
+ * This kernel is invoked by LangevinMiddleIntegrator to take one time step.
  */
-class CommonIntegrateBAOABStepKernel : public IntegrateBAOABStepKernel {
+class CommonIntegrateLangevinMiddleStepKernel : public IntegrateLangevinMiddleStepKernel {
 public:
-    CommonIntegrateBAOABStepKernel(std::string name, const Platform& platform, ComputeContext& cc) : IntegrateBAOABStepKernel(name, platform), cc(cc),
+    CommonIntegrateLangevinMiddleStepKernel(std::string name, const Platform& platform, ComputeContext& cc) : IntegrateLangevinMiddleStepKernel(name, platform), cc(cc),
             hasInitializedKernels(false) {
     }
     /**
      * Initialize the kernel, setting up the particle masses.
      * 
      * @param system     the System this kernel will be applied to
-     * @param integrator the BAOABLangevinIntegrator this kernel will be used for
+     * @param integrator the LangevinMiddleIntegrator this kernel will be used for
      */
-    void initialize(const System& system, const BAOABLangevinIntegrator& integrator);
+    void initialize(const System& system, const LangevinMiddleIntegrator& integrator);
     /**
      * Execute the kernel.
      * 
      * @param context    the context in which to execute this kernel
-     * @param integrator the BAOABLangevinIntegrator this kernel is being used for
-     * @param forcesAreValid if the context has been modified since the last time step, this will be
-     *                       false to show that cached forces are invalid and must be recalculated.
-     *                       On exit, this should specify whether the cached forces are valid at the
-     *                       end of the step.
+     * @param integrator the LangevinMiddleIntegrator this kernel is being used for
      */
-    void execute(ContextImpl& context, const BAOABLangevinIntegrator& integrator, bool& forcesAreValid);
+    void execute(ContextImpl& context, const LangevinMiddleIntegrator& integrator);
     /**
      * Compute the kinetic energy.
      * 
      * @param context    the context in which to execute this kernel
-     * @param integrator the BAOABLangevinIntegrator this kernel is being used for
+     * @param integrator the LangevinMiddleIntegrator this kernel is being used for
      */
-    double computeKineticEnergy(ContextImpl& context, const BAOABLangevinIntegrator& integrator);
+    double computeKineticEnergy(ContextImpl& context, const LangevinMiddleIntegrator& integrator);
 private:
     ComputeContext& cc;
     double prevTemp, prevFriction, prevStepSize;
     bool hasInitializedKernels;
     ComputeArray params, oldDelta;
-    ComputeKernel kernel1, kernel2, kernel3, kernel4;
+    ComputeKernel kernel1, kernel2, kernel3;
+};
+
+/*
+ * This kernel is invoked by NoseHooverIntegrator to take one time step.
+ */
+class CommonIntegrateNoseHooverStepKernel : public IntegrateNoseHooverStepKernel {
+public:
+    CommonIntegrateNoseHooverStepKernel(std::string name, const Platform& platform, ComputeContext& cc) :
+                                  IntegrateNoseHooverStepKernel(name, platform), cc(cc), hasInitializedKernels(false),
+                                  hasInitializedKineticEnergyKernel(false), hasInitializedHeatBathEnergyKernel(false),
+                                  hasInitializedScaleVelocitiesKernel(false), hasInitializedPropagateKernel(false) {}
+    ~CommonIntegrateNoseHooverStepKernel() {}
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param integrator the NoseHooverIntegrator this kernel will be used for
+     */
+    void initialize(const System& system, const NoseHooverIntegrator& integrator);
+    /**
+     * Execute the kernel.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the VerletIntegrator this kernel is being used for
+     * @param forcesAreValid a reference to the parent integrator's boolean for keeping
+     *                       track of the validity of the current forces.
+     */
+    void execute(ContextImpl& context, const NoseHooverIntegrator& integrator, bool &forcesAreValid);
+    /**
+     * Compute the kinetic energy.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param integrator the NoseHooverIntegrator this kernel is being used for
+     */
+    double computeKineticEnergy(ContextImpl& context, const NoseHooverIntegrator& integrator);
+    /**
+     * Execute the kernel that propagates the Nose Hoover chain and determines the velocity scale factor.
+     * 
+     * @param context  the context in which to execute this kernel
+     * @param noseHooverChain the object describing the chain to be propagated.
+     * @param kineticEnergy the {center of mass, relative} kineticEnergies of the particles being thermostated by this chain.
+     * @param timeStep the time step used by the integrator.
+     * @return the velocity scale factor to apply to the particles associated with this heat bath.
+     */
+    std::pair<double, double> propagateChain(ContextImpl& context, const NoseHooverChain &noseHooverChain, std::pair<double, double> kineticEnergy, double timeStep);
+    /**
+     * Execute the kernal that computes the total (kinetic + potential) heat bath energy.
+     *
+     * @param context the context in which to execute this kernel
+     * @param noseHooverChain the chain whose energy is to be determined.
+     * @return the total heat bath energy.
+     */
+    double computeHeatBathEnergy(ContextImpl& context, const NoseHooverChain &noseHooverChain);
+    /**
+     * Execute the kernel that computes the kinetic energy for a subset of atoms,
+     * or the relative kinetic energy of Drude particles with respect to their parent atoms
+     *
+     * @param context the context in which to execute this kernel
+     * @param noseHooverChain the chain whose energy is to be determined.
+     * @param downloadValue whether the computed value should be downloaded and returned.
+     */
+    std::pair<double, double> computeMaskedKineticEnergy(ContextImpl& context, const NoseHooverChain &noseHooverChain, bool downloadValue);
+    /**
+     * Execute the kernel that scales the velocities of particles associated with a nose hoover chain
+     *
+     * @param context the context in which to execute this kernel
+     * @param noseHooverChain the chain whose energy is to be determined.
+     * @param scaleFactor the multiplicative factor by which {absolute, relative} velocities are scaled.
+     */
+    void scaleVelocities(ContextImpl& context, const NoseHooverChain &noseHooverChain, std::pair<double, double> scaleFactor);
+    /**
+     * Write the chain states to a checkpoint.
+     */
+    void createCheckpoint(ContextImpl& context, std::ostream& stream) const;
+    /**
+     * Load the chain states from a checkpoint.
+     */
+    void loadCheckpoint(ContextImpl& context, std::istream& stream);
+    /**
+     * Get the internal states of all chains.
+     * 
+     * @param context       the context for which to get the states
+     * @param positions     element [i][j] contains the position of bead j for chain i
+     * @param velocities    element [i][j] contains the velocity of bead j for chain i
+     */
+    void getChainStates(ContextImpl& context, std::vector<std::vector<double> >& positions, std::vector<std::vector<double> >& velocities) const;
+    /**
+     * Set the internal states of all chains.
+     * 
+     * @param context       the context for which to get the states
+     * @param positions     element [i][j] contains the position of bead j for chain i
+     * @param velocities    element [i][j] contains the velocity of bead j for chain i
+     */
+    void setChainStates(ContextImpl& context, const std::vector<std::vector<double> >& positions, const std::vector<std::vector<double> >& velocities);
+private:
+    ComputeContext& cc;
+    float prevMaxPairDistance;
+    ComputeArray maxPairDistanceBuffer, pairListBuffer, atomListBuffer, pairTemperatureBuffer, oldDelta;
+    std::map<int, ComputeArray> chainState;
+    ComputeKernel kernel1, kernel2, kernel3, kernel4, kernelHardWall;
+    bool hasInitializedKernels;
+    ComputeKernel reduceEnergyKernel;
+    ComputeKernel computeHeatBathEnergyKernel;
+    ComputeKernel computeAtomsKineticEnergyKernel;
+    ComputeKernel computePairsKineticEnergyKernel;
+    ComputeKernel scaleAtomsVelocitiesKernel;
+    ComputeKernel scalePairsVelocitiesKernel;
+    ComputeArray energyBuffer, scaleFactorBuffer, kineticEnergyBuffer, chainMasses, chainForces, heatBathEnergy;
+    std::map<int, ComputeArray> atomlists, pairlists;
+    std::map<int, ComputeKernel> propagateKernels;
+    bool hasInitializedPropagateKernel;
+    bool hasInitializedKineticEnergyKernel;
+    bool hasInitializedHeatBathEnergyKernel;
+    bool hasInitializedScaleVelocitiesKernel;
 };
 
 /**
@@ -1340,6 +1567,52 @@ private:
     int randomSeed;
     ComputeArray atomGroups;
     ComputeKernel kernel;
+};
+
+/**
+ * This kernel is invoked by MonteCarloBarostat to adjust the periodic box volume
+ */
+class CommonApplyMonteCarloBarostatKernel : public ApplyMonteCarloBarostatKernel {
+public:
+    CommonApplyMonteCarloBarostatKernel(std::string name, const Platform& platform, ComputeContext& cc) : ApplyMonteCarloBarostatKernel(name, platform), cc(cc),
+            hasInitializedKernels(false) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param barostat   the MonteCarloBarostat this kernel will be used for
+     */
+    void initialize(const System& system, const Force& barostat);
+    /**
+     * Attempt a Monte Carlo step, scaling particle positions (or cluster centers) by a specified value.
+     * This version scales the x, y, and z positions independently.
+     * This is called BEFORE the periodic box size is modified.  It should begin by translating each particle
+     * or cluster into the first periodic box, so that coordinates will still be correct after the box size
+     * is changed.
+     *
+     * @param context    the context in which to execute this kernel
+     * @param scaleX     the scale factor by which to multiply particle x-coordinate
+     * @param scaleY     the scale factor by which to multiply particle y-coordinate
+     * @param scaleZ     the scale factor by which to multiply particle z-coordinate
+     */
+    void scaleCoordinates(ContextImpl& context, double scaleX, double scaleY, double scaleZ);
+    /**
+     * Reject the most recent Monte Carlo step, restoring the particle positions to where they were before
+     * scaleCoordinates() was last called.
+     *
+     * @param context    the context in which to execute this kernel
+     */
+    void restoreCoordinates(ContextImpl& context);
+private:
+    ComputeContext& cc;
+    bool hasInitializedKernels;
+    int numMolecules;
+    ComputeArray savedPositions, savedFloatForces, savedLongForces;
+    ComputeArray moleculeAtoms;
+    ComputeArray moleculeStartIndex;
+    ComputeKernel kernel;
+    std::vector<int> lastAtomOrder;
 };
 
 } // namespace OpenMM

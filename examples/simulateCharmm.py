@@ -1,7 +1,7 @@
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
-from sys import stdout, exit, stderr
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
+from sys import stdout
 
 # Read the PSF
 psf = CharmmPsfFile('ala_ala_ala.psf')
@@ -21,7 +21,7 @@ params = CharmmParameterSet('charmm22.rtf', 'charmm22.par')
 
 # Instantiate the system
 system = psf.createSystem(params, nonbondedMethod=NoCutoff, constraints=HBonds)
-integrator = BAOABLangevinIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
+integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 simulation = Simulation(psf.topology, system, integrator)
 simulation.context.setPositions(pdb.getPositions())
 simulation.minimizeEnergy()

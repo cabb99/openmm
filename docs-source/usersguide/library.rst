@@ -243,14 +243,14 @@ simulation might look like:
         angles->addAngle(angle[i].particle1, angle[i].particle2,
             angle[i].particle3, angle[i].angle, angle[i].k);
     // ...create and initialize other force field terms in the same way
-    BAOABLangevinIntegrator integrator(temperature, friction, stepSize);
+    LangevinMiddleIntegrator integrator(temperature, friction, stepSize);
     Context context(system, integrator);
     context.setPositions(initialPositions);
     context.setVelocities(initialVelocities);
     integrator.step(10000);
 
 We create a System, add various Forces to it, and set parameters on both the
-System and the Forces.  We then create a BAOABLangevinIntegrator, initialize a
+System and the Forces.  We then create a LangevinMiddleIntegrator, initialize a
 Context in which to run a simulation, and instruct the Integrator to advance the
 simulation for 10,000 time steps.
 
@@ -397,7 +397,7 @@ Windows: Visual Studio
 
 On Windows systems, use the C++ compiler in Visual Studio 2015 or later.  You
 can download a free version of the Visual Studio C++ build tools from
-http://landinghub.visualstudio.com/visual-cpp-build-tools.  If you plan to use OpenMM from
+https://visualstudio.microsoft.com.  If you plan to use OpenMM from
 Python, it is critical that both OpenMM and Python be compiled with the same
 version of Visual Studio.
 
@@ -1631,7 +1631,7 @@ along with the handle :code:`omm`\ , back to the calling function.
     // best available Platform. Initialize the configuration from the default
     // positions we collected above. Initial velocities will be zero but could
     // have been set here.
-    omm->integrator = new OpenMM::BAOABLangevinIntegrator(temperature,
+    omm->integrator = new OpenMM::LangevinMiddleIntegrator(temperature,
     frictionInPs,
     stepSizeInFs * OpenMM::PsPerFs);
     omm->context    = new OpenMM::Context(*omm->system, *omm->integrator);
@@ -2598,14 +2598,14 @@ is set with the :code:`LD_LIBRARY_PATH` environment variable on Linux,
 :code:`DYLD_LIBRARY_PATH` on Mac, or :code:`PATH` on Windows.  See
 Chapter :ref:`installing-openmm` for details.
 
-The Python API is contained in the simtk.openmm package, while the units code is
-contained in the simtk.units package.  (The application layer, described in the
-Application Guide, is contained in the simtk.openmm.app package.)  A program
+The Python API is contained in the openmm package, while the units code is
+contained in the openmm.units package.  (The application layer, described in the
+Application Guide, is contained in the openmm.app package.)  A program
 using it will therefore typically begin
 ::
 
-    import simtk.openmm as mm
-    import simtk.unit as unit
+    import openmm as mm
+    import openmm.unit as unit
 
 Creating and using OpenMM objects is then done exactly as in C++:
 ::
@@ -2675,7 +2675,7 @@ quantity is “0.63 kilograms”.  A Quantity is expressed as a combination of a
 value (e.g., 0.63), and a Unit (e.g., kilogram).  The same Quantity can be
 expressed in different Units.
 
-The set of BaseDimensions defined in the simtk.unit module includes:
+The set of BaseDimensions defined in the openmm.unit module includes:
 
 * mass
 * length
@@ -2687,8 +2687,8 @@ The set of BaseDimensions defined in the simtk.unit module includes:
 
 
 These are not precisely the same list of base dimensions used in the SI unit
-system.  SI defines “current” (charge per time) as a base unit, while simtk.unit
-uses “charge”.  And simtk.unit treats angle as a dimension, even though angle
+system.  SI defines “current” (charge per time) as a base unit, while openmm.unit
+uses “charge”.  And openmm.unit treats angle as a dimension, even though angle
 quantities are often considered dimensionless.  In this case, we choose to err
 on the side of explicitness, particularly because interconversion of degrees and
 radians is a frequent source of unit headaches.
@@ -2696,16 +2696,16 @@ radians is a frequent source of unit headaches.
 Units examples
 --------------
 
-Many common units are defined in the simtk.unit module.
+Many common units are defined in the openmm.unit module.
 ::
 
-    from simtk.unit import nanometer, angstrom, dalton
+    from openmm.unit import nanometer, angstrom, dalton
 
 Sometimes you don’t want to type the full unit name every time, so you can
 assign it a shorter name using the :code:`as` functionality:
 ::
 
-    from simtk.unit import nanometer as nm
+    from openmm.unit import nanometer as nm
 
 New quantities can be created from a value and a unit.  You can use either the
 multiply operator (‘*’) or the explicit Quantity constructor:
@@ -2743,7 +2743,7 @@ Multiplying or dividing two quantities creates a new quantity with a composite
 dimension.  For example, dividing a distance by a time results in a velocity.
 ::
 
-    from simtk.unit import kilogram, meter, second
+    from openmm.unit import kilogram, meter, second
     a = 9.8 * meter / second**2; # acceleration
     m = 0.36 * kilogram; # mass
     F = m * a; # force in kg*m/s**2::
@@ -2754,13 +2754,13 @@ Multiplication or division of two Units results in a composite Unit.
 
     mps = meter / second
 
-Unlike amount (moles), angle (radians) is arguably dimensionless.  But simtk.unit
+Unlike amount (moles), angle (radians) is arguably dimensionless.  But openmm.unit
 treats angle as another dimension.   Use the trigonometric functions from the
-simtk.unit module (not those from the Python math module!) when dealing with
+openmm.unit module (not those from the Python math module!) when dealing with
 Units and Quantities.
 ::
 
-    from simtk.unit import sin, cos, acos
+    from openmm.unit import sin, cos, acos
     x = sin(90.0*degrees)
     angle = acos(0.68); # returns an angle quantity (in radians)
 
@@ -2776,10 +2776,10 @@ Quantities and Units.
 
 The method :code:`sqrt()` is not as built-in as :code:`pow()`\ .  Do not
 use the Python :code:`math.sqrt()` method with Units and Quantities.  Use
-the :code:`simtk.unit.sqrt()` method instead:
+the :code:`openmm.unit.sqrt()` method instead:
 ::
 
-    from simtk.unit import sqrt
+    from openmm.unit import sqrt
     side_length = sqrt(4.0*meter**2)
 
 
@@ -2787,7 +2787,7 @@ Atomic scale mass and energy units are “per amount”
 ---------------------------------------------------
 
 Mass and energy units at the atomic scale are specified “per amount” in the
-simtk.unit module.  Amount (mole) is one of the seven fundamental dimensions in
+openmm.unit module.  Amount (mole) is one of the seven fundamental dimensions in
 the SI unit system.   The atomic scale mass unit, dalton, is defined as grams
 per mole.  The dimension of dalton is therefore mass/amount, instead of simply
 mass.  Similarly, the atomic scale energy unit, kilojoule_per_mole (and
@@ -2812,11 +2812,11 @@ SI prefixes
 -----------
 
 Many units with SI prefixes such as “milligram” (milli) and “kilometer” (kilo)
-are provided in the simtk.unit module.  Others can be created by multiplying a
+are provided in the openmm.unit module.  Others can be created by multiplying a
 prefix symbol by a non-prefixed unit:
 ::
 
-    from simtk.unit import mega, kelvin
+    from openmm.unit import mega, kelvin
     megakelvin = mega * kelvin
     t = 8.3 * megakelvin
 
@@ -2831,13 +2831,13 @@ Use the :code:`Quantity.in_units_of()` method to create a new Quantity with
 different units.
 ::
 
-    from simtk.unit import nanosecond, fortnight
+    from openmm.unit import nanosecond, fortnight
     x = (175000*nanosecond).in_units_of(fortnight)
 
 When you want a plain number out of a Quantity, use the :code:`value_in_unit()` method:
 ::
 
-    from simtk.unit import femtosecond, picosecond
+    from openmm.unit import femtosecond, picosecond
     t = 5.0*femtosecond
     t_just_a_number = t.value_in_unit(picoseconds)
 
@@ -2850,7 +2850,7 @@ Lists, tuples, vectors, numpy arrays, and Units
 -----------------------------------------------
 
 Units can be attached to containers of numbers to create a vector quantity.  The
-simtk.unit module overloads the :code:`__setitem__` and
+openmm.unit module overloads the :code:`__setitem__` and
 :code:`__getitem__` methods for these containers to ensure that Quantities go
 in and out.
 ::
@@ -3313,214 +3313,6 @@ only use either the ‘Verlet’ or ‘Stochastic’ integrators when the OpenMM
 is used; an equivalent to the TINKER ‘Beeman’ integrator is unavailable in
 OpenMM.
 
-TINKER-OpenMM
-**************
-
-
-Building TINKER-OpenMM (Linux)
-==============================
-
-Below are instructions for building TINKER-OpenMM in Linux.
-
-#. To build and install the OpenMM plugin libraries, follow the steps outlined
-   in Chapter :ref:`compiling-openmm-from-source-code` (Compiling OpenMM from Source Code).
-   You will need to set the following options to ‘ON’ when you run CMake:
-
-   #. OPENMM_BUILD_AMOEBA_PLUGIN
-   #. OPENMM_BUILD_AMOEBA_CUDA_LIB
-   #. OPENMM_BUILD_CUDA_LIB
-   #. OPENMM_BUILD_C_AND_FORTRAN_WRAPPERS
-
-#. Download the complete TINKER distribution from http://dasher.wustl.edu/ffe/
-   and unzip/untar the file.
-
-#. Obtain the modified TINKER file :code:`dynamic.f`\ , the interface file
-   :code:`dynamic_openmm.c` and the :code:`Makefile` from the “Downloads”
-   section of OpenMM’s homepage (https://simtk.org/home/openmm) and place them in
-   the TINKER source directory. These files are compatible with TINKER 6.0.4. If
-   you are using later versions of TINKER, some minor edits may be required to get
-   the program to compile.
-
-#. In the :code:`Makefile`\ , edit the following fields, as needed:
-
-   #. TINKERDIR – This should point to the head of the TINKER
-      distribution directory, e.g., ‘/home/user/tinker-5.1.09’
-   #. LINKDIR – directory in executable path containing linked
-      copies of the TINKER executables; typical directory would be ‘/usr/local/bin’
-   #. CC – This is an added field that should point to the C compiler
-      (e.g., ‘/usr/bin/gcc’)
-   #. OpenMM_INSTALL_DIR - This should identify the directory where the
-      OpenMM files were installed, i.e., the OPENMM_INSTALL_PREFIX setting when CMake
-      was run in step (1)
-
-#. At the command line, type::
-
-    make dynamic_openmm.x
-
-   to create the executable.
-
-#. Check that the environment variable ‘OPENMM_PLUGIN_DIR’ is set to the
-   installed plugins directory and that the environment variable ‘LD_LIBRARY_PATH’
-   includes both  the installed lib and plugins directory; for example:
-   ::
-
-    OPENMM_PLUGIN_DIR=/home/usr/install/openmm/lib/plugins
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/home/usr/install/openmm/lib:
-                    /home/usr/install/openmm/lib/plugins
-
-Using TINKER-OpenMM
-===================
-
-Run :code:`dynamic_openmm.x` with the same command-line options as you would
-\ :code:`dynamic.x`\ .  Consult the TINKER documentation and :autonumref:`Table,mapping from TINKER` for
-more details.
-
-Available outputs
--------------------
-
-Only the total force and potential energy are returned by TINKER-OpenMM; a
-breakdown of the energy and force into individual terms (bond, angle, …), as is
-done in TINKER, is unavailable through the OpenMM plugin.  Also, the pressure
-cannot be calculated since the virial is not calculated in the plugin.
-
-Setting the frequency of output data updates
---------------------------------------------
-
-Frequent retrieval of the state information from the GPU board can use up a
-substantial portion of the total wall clock time.  This is due to the fact that
-the forces and energies are recalculated for each retrieval.  Hence, if the
-state information is obtained after every timestep, the wall clock time will
-approximately double over runs where the state information in only gathered
-infrequently (say every 50-100 timesteps).
-
-Two options are provided for updating the TINKER data structures:
-
-#. (DEFAULT)  If the logical value of ‘oneTimeStepPerUpdate’ in
-   :code:`dynamic.f` is true, then a single step is taken and the TINKER data
-   structures are populated at each step. This option is conceptually simpler and
-   is consistent with the TINKER md loops; for example, the output from the TINKER
-   subroutine mdstat() will be accurate for this choice. However, the performance
-   will be degraded since the forces and energy are recalculated with each call,
-   doubling the required time. This is the default option.
-#. If ‘oneTimeStepPerUpdate’ is false, then depending on the values of iprint
-   (TINKER keyword ‘PRINTOUT’) and iwrite (=dump time/dt), multiple time steps are
-   taken on the GPU before data is transferred from the GPU to the CPU; here dump
-   time is the value given to the TINKER command-line query ‘Enter Time between
-   Dumps in Picoseconds’. Under this option, every  iprint and every iwrite
-   timesteps, the state information will be retrieved. For example if ‘PRINTOUT’ is
-   10 and iwrite is 15, then the information will be retrieved at time steps { 10,
-   15, 20, 30, 40, 45, …}. This option will lead to better performance than option
-   1. However, a downside to this approach is that the fluctuation values printed
-   by the Tinker routine mdstat() will be incorrect.
-
-
-
-Specify the GPU board to use
-----------------------------
-
-To specify a GPU board other than the default, set the environment variable
-‘CUDA_DEVICE’ to the desired board id. A line like the following will be printed
-to stderr for the setting CUDA_DEVICE=2:
-::
-
-    Platform Cuda: setting device id to 2 based on env variable CUDA_DEVICE.
-
-
-Running comparison tests between TINKER and OpenMM routines
------------------------------------------------------------
-
-To turn on testing (comparison of forces and potential energy for the initial
-conformation calculated using TINKER routines and OpenMM routines), set
-‘applyOpenMMTest’ to a non-zero value in :code:`dynamic.f`\ . Note: the
-program exits after the force/energy comparisons; it does not execute the main
-molecular dynamics loop.
-
-*Testing individual forces:*  An example key file for testing the harmonic
-bond term is as follows:
-::
-
-    parameters /home/user/tinker/params/amoebabio09
-    verbose
-    solvate  GK
-    born-radius  grycuk
-    polar-eps  0.0001
-    integrate  verlet
-    bondterm only
-
-For the other covalent and Van der Waals forces, replace the line :code:`bondterm only`
-above with the following lines depending on the force to be tested:
-::
-
-    angle force:            angleterm onl
-    out-of-plane bend:      opbendterm only
-    stretch bend force      strbndterm only
-    pi-torsion force:       pitorsterm only
-    torsion force:          torsionterm only
-    torsion-torsion force:  tortorterm only
-    Urey-Bradley force:     ureyterm only
-    Van der Waals force:    vdwterm only
-
-A sample key file for the multipole force with no cutoffs is given below:
-::
-
-    parameters /home/user/tinker/params/amoebabio09
-    verbose
-    solvate  GK
-    born-radius  grycuk
-    polar-eps  0.0001
-    integrate  verlet
-    mpoleterm only
-    polarizeterm
-
-A sample key file for PME multipole tests
-::
-
-    parameters /home/user/tinker/params/amoebabio09
-    verbose
-    randomseed  123456789
-    neighbor-list
-    vdw-cutoff  12.0
-    ewald
-    ewald-cutoff  7.0
-    pme-grid  64 64 64
-    polar-eps  0.01
-    fft-package  fftw
-    integrate  verlet
-    mpoleterm only
-    polarizeterm
-
-For the Generalized Kirkwood force, the following entries are needed:
-::
-
-    parameters /home/user/tinker/params/amoebabio09
-    verbose
-    solvate  GK
-    born-radius  grycuk
-    polar-eps  0.0001
-    integrate  verlet
-    solvateterm only
-    polarizeterm
-    mpoleterm
-
-For the implicit solvent (‘solvate GK’ runs) test, the forces and energies will
-differ due to the different treatments of the cavity term (see Section :ref:`supported-forces-and-options`
-above).  With these options for the Generalized Kirkwood force, the test routine
-will remove the cavity contribution from the TINKER and OpenMM forces/energy
-when performing the comparisons between the two calculations.
-
-To test the multipole force or the Generalized Kirkwood forces with direct
-polarization, add the following line to the end of the above files:
-::
-
-    polarization DIRECT
-
-
-Turning off OpenMM / Reverting to TINKER routines
--------------------------------------------------
-
-To use the TINKER routines, as opposed to the OpenMM plugin, to run a
-simulation, set ‘useOpenMM’ to .false. in :code:`dynamic.f`\ .
-
 OpenMM AMOEBA Validation
 ************************
 
@@ -3634,7 +3426,7 @@ the Drude particle and the spring constant *k* by
 A damped interaction\ :cite:`Thole1981` is used between dipoles that are
 bonded to each other.
 
-The equations of motion can be integrated with two different methods:
+The equations of motion can be integrated with three different methods:
 
 #. In the Self Consistent Field (SCF) method, the ordinary particles are first
    updated as usual.  A local energy minimization is then performed to select new
@@ -3644,8 +3436,25 @@ The equations of motion can be integrated with two different methods:
 #. In the extended Lagrangian method, the positions of the Drude particles are
    treated as dynamical variables, just like any other particles.  A small amount
    of mass is transferred from the parent particles to the Drude particles,
-   allowing them to be integrated normally.  A dual Langevin integrator is used to
+   allowing them to be integrated normally.  A dual Langevin or Nose-Hoover integrator is used to
    maintain the center of mass of each Drude particle pair at the system
    temperature, while using a much lower temperature for their relative internal
    motion.  In practice, this produces dipole moments very close to those from the
    SCF solution while being much faster to compute.
+#. The Nosé-Hoover dual thermostat method.  In this approach the motion of
+   non-Drude sites and center of mass motion of Drude pairs are thermostated to
+   the target temperature with one thermostat.  Another thermostat is used to keep
+   relative motion of Drude pairs to a different, typically much lower,
+   temperature to maintain separation of nuclear and electronic degrees of
+   freedom.  The minimal specification is as follows::
+
+      DrudeNoseHooverIntegrator integrator(temperature, frequency,
+                                           temperatureDrude, frequencyDrude,
+                                           1*femtoseconds)
+
+   Where the first and third arguments specify the center-of-mass temperature and
+   relative temperature for each Drude pair, respecitvely.  The second and fourth
+   arguments describe the frequency of interaction with the center-of-mass and
+   relative heat baths, respectively, and should be specified with inverse time
+   units.  The fifth argument is the timestep.  The multi-timestep and Nosé-Hoover
+   chain length may also be specified, but sensible defaults are provided.

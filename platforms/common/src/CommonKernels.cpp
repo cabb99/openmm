@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2021 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -97,6 +97,49 @@ static bool usesVariable(const Lepton::ParsedExpression& expression, const strin
 
 static pair<ExpressionTreeNode, string> makeVariable(const string& name, const string& value) {
     return make_pair(ExpressionTreeNode(new Operation::Variable(name)), value);
+}
+
+static void replaceFunctionsInExpression(map<string, CustomFunction*>& functions, ExpressionProgram& expression) {
+    for (int i = 0; i < expression.getNumOperations(); i++) {
+        if (expression.getOperation(i).getId() == Operation::CUSTOM) {
+            const Operation::Custom& op = dynamic_cast<const Operation::Custom&>(expression.getOperation(i));
+            expression.setOperation(i, new Operation::Custom(op.getName(), functions[op.getName()]->clone(), op.getDerivOrder()));
+        }
+    }
+}
+
+void CommonApplyConstraintsKernel::initialize(const System& system) {
+}
+
+void CommonApplyConstraintsKernel::apply(ContextImpl& context, double tol) {
+    cc.setAsCurrent();
+    if (!hasInitializedKernel) {
+        hasInitializedKernel = true;
+        map<string, string> defines;
+        ComputeProgram program = cc.compileProgram(CommonKernelSources::constraints, defines);
+        applyDeltasKernel = program->createKernel("applyPositionDeltas");
+        applyDeltasKernel->addArg(cc.getNumAtoms());
+        applyDeltasKernel->addArg(cc.getPosq());
+        applyDeltasKernel->addArg(cc.getIntegrationUtilities().getPosDelta());
+        if (cc.getUseMixedPrecision())
+            applyDeltasKernel->addArg(cc.getPosqCorrection());
+    }
+    IntegrationUtilities& integration = cc.getIntegrationUtilities();
+    cc.clearBuffer(integration.getPosDelta());
+    integration.applyConstraints(tol);
+    applyDeltasKernel->execute(cc.getNumAtoms());
+    integration.computeVirtualSites();
+}
+
+void CommonApplyConstraintsKernel::applyToVelocities(ContextImpl& context, double tol) {
+    cc.getIntegrationUtilities().applyVelocityConstraints(tol);
+}
+
+void CommonVirtualSitesKernel::initialize(const System& system) {
+}
+
+void CommonVirtualSitesKernel::computePositions(ContextImpl& context) {
+    cc.getIntegrationUtilities().computeVirtualSites();
 }
 
 class CommonCalcHarmonicBondForceKernel::ForceInfo : public ComputeForceInfo {
@@ -1285,86 +1328,11 @@ void CommonCalcCustomCompoundBondForceKernel::initialize(const System& system, c
         }
     }
 
-    // Now to generate the kernel.  First, it needs to calculate all distances, angles,
-    // and dihedrals the expression depends on.
+    // Generate the kernel.
 
-    map<string, vector<int> > distances;
-    map<string, vector<int> > angles;
-    map<string, vector<int> > dihedrals;
-    Lepton::ParsedExpression energyExpression = CustomCompoundBondForceImpl::prepareExpression(force, functions, distances, angles, dihedrals);
+    Lepton::ParsedExpression energyExpression = CustomCompoundBondForceImpl::prepareExpression(force, functions);
     map<string, Lepton::ParsedExpression> forceExpressions;
-    set<string> computedDeltas;
-    vector<string> atomNames, posNames;
-    for (int i = 0; i < particlesPerBond; i++) {
-        string index = cc.intToString(i+1);
-        atomNames.push_back("P"+index);
-        posNames.push_back("pos"+index);
-    }
     stringstream compute;
-    int index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& atoms = distance.second;
-        string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
-        if (computedDeltas.count(deltaName) == 0) {
-            compute<<"real4 delta"<<deltaName<<" = ccb_delta("<<posNames[atoms[0]]<<", "<<posNames[atoms[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName);
-        }
-        compute<<"real r_"<<deltaName<<" = SQRT(delta"<<deltaName<<".w);\n";
-        variables[distance.first] = "r_"+deltaName;
-        forceExpressions["real dEdDistance"+cc.intToString(index)+" = "] = energyExpression.differentiate(distance.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& atoms = angle.second;
-        string deltaName1 = atomNames[atoms[1]]+atomNames[atoms[0]];
-        string deltaName2 = atomNames[atoms[1]]+atomNames[atoms[2]];
-        string angleName = "angle_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = ccb_delta("<<posNames[atoms[1]]<<", "<<posNames[atoms[0]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = ccb_delta("<<posNames[atoms[1]]<<", "<<posNames[atoms[2]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        compute<<"real "<<angleName<<" = ccb_computeAngle(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        variables[angle.first] = angleName;
-        forceExpressions["real dEdAngle"+cc.intToString(index)+" = "] = energyExpression.differentiate(angle.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& atoms = dihedral.second;
-        string deltaName1 = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string deltaName2 = atomNames[atoms[2]]+atomNames[atoms[1]];
-        string deltaName3 = atomNames[atoms[2]]+atomNames[atoms[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        string dihedralName = "dihedral_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]]+atomNames[atoms[3]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = ccb_delta("<<posNames[atoms[0]]<<", "<<posNames[atoms[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = ccb_delta("<<posNames[atoms[2]]<<", "<<posNames[atoms[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        if (computedDeltas.count(deltaName3) == 0) {
-            compute<<"real4 delta"<<deltaName3<<" = ccb_delta("<<posNames[atoms[2]]<<", "<<posNames[atoms[3]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName3);
-        }
-        compute<<"real4 "<<crossName1<<" = ccb_computeCross(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        compute<<"real4 "<<crossName2<<" = ccb_computeCross(delta"<<deltaName2<<", delta"<<deltaName3<<");\n";
-        compute<<"real "<<dihedralName<<" = ccb_computeAngle("<<crossName1<<", "<<crossName2<<");\n";
-        compute<<dihedralName<<" *= (delta"<<deltaName1<<".x*"<<crossName2<<".x + delta"<<deltaName1<<".y*"<<crossName2<<".y + delta"<<deltaName1<<".z*"<<crossName2<<".z < 0 ? -1 : 1);\n";
-        variables[dihedral.first] = dihedralName;
-        forceExpressions["real dEdDihedral"+cc.intToString(index)+" = "] = energyExpression.differentiate(dihedral.first).optimize();
-        index++;
-    }
-
-    // Now evaluate the expressions.
-
     for (int i = 0; i < (int) params->getParameterInfos().size(); i++) {
         ComputeParameterInfo& parameter = params->getParameterInfos()[i];
         string argName = cc.getBondedUtilities().addArgument(parameter.getArray(), parameter.getType());
@@ -1377,86 +1345,27 @@ void CommonCalcCustomCompoundBondForceKernel::initialize(const System& system, c
         Lepton::ParsedExpression derivExpression = energyExpression.differentiate(paramName).optimize();
         forceExpressions[derivVariable+" += "] = derivExpression;
     }
-    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp");
-
-    // Finally, apply forces to atoms.
-
     vector<string> forceNames;
     for (int i = 0; i < particlesPerBond; i++) {
         string istr = cc.intToString(i+1);
         string forceName = "force"+istr;
         forceNames.push_back(forceName);
         compute<<"real3 "<<forceName<<" = make_real3(0);\n";
-        compute<<"{\n";
         Lepton::ParsedExpression forceExpressionX = energyExpression.differentiate("x"+istr).optimize();
         Lepton::ParsedExpression forceExpressionY = energyExpression.differentiate("y"+istr).optimize();
         Lepton::ParsedExpression forceExpressionZ = energyExpression.differentiate("z"+istr).optimize();
-        map<string, Lepton::ParsedExpression> expressions;
         if (!isZeroExpression(forceExpressionX))
-            expressions[forceName+".x -= "] = forceExpressionX;
+            forceExpressions[forceName+".x -= "] = forceExpressionX;
         if (!isZeroExpression(forceExpressionY))
-            expressions[forceName+".y -= "] = forceExpressionY;
+            forceExpressions[forceName+".y -= "] = forceExpressionY;
         if (!isZeroExpression(forceExpressionZ))
-            expressions[forceName+".z -= "] = forceExpressionZ;
-        if (expressions.size() > 0)
-            compute<<cc.getExpressionUtilities().createExpressions(expressions, variables, functionList, functionDefinitions, "coordtemp");
-        compute<<"}\n";
+            forceExpressions[forceName+".z -= "] = forceExpressionZ;
     }
-    index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& atoms = distance.second;
-        string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string value = "(dEdDistance"+cc.intToString(index)+"/r_"+deltaName+")*trimTo3(delta"+deltaName+")";
-        compute<<forceNames[atoms[0]]<<" += "<<"-"<<value<<";\n";
-        compute<<forceNames[atoms[1]]<<" += "<<value<<";\n";
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& atoms = angle.second;
-        string deltaName1 = atomNames[atoms[1]]+atomNames[atoms[0]];
-        string deltaName2 = atomNames[atoms[1]]+atomNames[atoms[2]];
-        compute<<"{\n";
-        compute<<"real3 crossProd = trimTo3(cross(delta"<<deltaName2<<", delta"<<deltaName1<<"));\n";
-        compute<<"real lengthCross = max(SQRT(dot(crossProd, crossProd)), (real) 1e-6f);\n";
-        compute<<"real3 deltaCross0 = -cross(trimTo3(delta"<<deltaName1<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName1<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross2 = cross(trimTo3(delta"<<deltaName2<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName2<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross1 = -(deltaCross0+deltaCross2);\n";
-        compute<<forceNames[atoms[0]]<<" += deltaCross0;\n";
-        compute<<forceNames[atoms[1]]<<" += deltaCross1;\n";
-        compute<<forceNames[atoms[2]]<<" += deltaCross2;\n";
-        compute<<"}\n";
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& atoms = dihedral.second;
-        string deltaName1 = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string deltaName2 = atomNames[atoms[2]]+atomNames[atoms[1]];
-        string deltaName3 = atomNames[atoms[2]]+atomNames[atoms[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        compute<<"{\n";
-        compute<<"real r = SQRT(delta"<<deltaName2<<".w);\n";
-        compute<<"real4 ff;\n";
-        compute<<"ff.x = (-dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName1<<".w;\n";
-        compute<<"ff.y = (delta"<<deltaName1<<".x*delta"<<deltaName2<<".x + delta"<<deltaName1<<".y*delta"<<deltaName2<<".y + delta"<<deltaName1<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.z = (delta"<<deltaName3<<".x*delta"<<deltaName2<<".x + delta"<<deltaName3<<".y*delta"<<deltaName2<<".y + delta"<<deltaName3<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.w = (dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName2<<".w;\n";
-        compute<<"real3 internalF0 = ff.x*trimTo3("<<crossName1<<");\n";
-        compute<<"real3 internalF3 = ff.w*trimTo3("<<crossName2<<");\n";
-        compute<<"real3 s = ff.y*internalF0 - ff.z*internalF3;\n";
-        compute<<forceNames[atoms[0]]<<" += internalF0;\n";
-        compute<<forceNames[atoms[1]]<<" += s-internalF0;\n";
-        compute<<forceNames[atoms[2]]<<" += -s-internalF3;\n";
-        compute<<forceNames[atoms[3]]<<" += internalF3;\n";
-        compute<<"}\n";
-        index++;
-    }
+    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp", "real", force.usesPeriodicBoundaryConditions());
     cc.getBondedUtilities().addInteraction(atoms, compute.str(), force.getForceGroup());
     map<string, string> replacements;
     replacements["M_PI"] = cc.doubleToString(M_PI);
-    cc.getBondedUtilities().addPrefixCode(cc.replaceStrings(CommonKernelSources::customCompoundBond, replacements));
+    cc.getBondedUtilities().addPrefixCode(cc.replaceStrings(CommonKernelSources::pointFunctions, replacements));
 }
 
 double CommonCalcCustomCompoundBondForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
@@ -1671,90 +1580,15 @@ void CommonCalcCustomCentroidBondForceKernel::initialize(const System& system, c
         }
     }
 
-    // Now to generate the kernel.  First, it needs to calculate all distances, angles,
-    // and dihedrals the expression depends on.
+    // Generate the kernel.
 
-    map<string, vector<int> > distances;
-    map<string, vector<int> > angles;
-    map<string, vector<int> > dihedrals;
-    Lepton::ParsedExpression energyExpression = CustomCentroidBondForceImpl::prepareExpression(force, functions, distances, angles, dihedrals);
+    Lepton::ParsedExpression energyExpression = CustomCentroidBondForceImpl::prepareExpression(force, functions);
     map<string, Lepton::ParsedExpression> forceExpressions;
-    set<string> computedDeltas;
-    vector<string> atomNames, posNames;
-    for (int i = 0; i < groupsPerBond; i++) {
-        string index = cc.intToString(i+1);
-        atomNames.push_back("P"+index);
-        posNames.push_back("pos"+index);
-    }
     stringstream compute, initParamDerivs, saveParamDerivs;
     for (int i = 0; i < groupsPerBond; i++) {
         compute<<"int group"<<(i+1)<<" = bondGroups[index+"<<(i*numBonds)<<"];\n";
         compute<<"real4 pos"<<(i+1)<<" = centerPositions[group"<<(i+1)<<"];\n";
     }
-    int index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& groups = distance.second;
-        string deltaName = atomNames[groups[0]]+atomNames[groups[1]];
-        if (computedDeltas.count(deltaName) == 0) {
-            compute<<"real4 delta"<<deltaName<<" = delta("<<posNames[groups[0]]<<", "<<posNames[groups[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName);
-        }
-        compute<<"real r_"<<deltaName<<" = sqrt(delta"<<deltaName<<".w);\n";
-        variables[distance.first] = "r_"+deltaName;
-        forceExpressions["real dEdDistance"+cc.intToString(index)+" = "] = energyExpression.differentiate(distance.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& groups = angle.second;
-        string deltaName1 = atomNames[groups[1]]+atomNames[groups[0]];
-        string deltaName2 = atomNames[groups[1]]+atomNames[groups[2]];
-        string angleName = "angle_"+atomNames[groups[0]]+atomNames[groups[1]]+atomNames[groups[2]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = delta("<<posNames[groups[1]]<<", "<<posNames[groups[0]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = delta("<<posNames[groups[1]]<<", "<<posNames[groups[2]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        compute<<"real "<<angleName<<" = computeAngle(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        variables[angle.first] = angleName;
-        forceExpressions["real dEdAngle"+cc.intToString(index)+" = "] = energyExpression.differentiate(angle.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& groups = dihedral.second;
-        string deltaName1 = atomNames[groups[0]]+atomNames[groups[1]];
-        string deltaName2 = atomNames[groups[2]]+atomNames[groups[1]];
-        string deltaName3 = atomNames[groups[2]]+atomNames[groups[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        string dihedralName = "dihedral_"+atomNames[groups[0]]+atomNames[groups[1]]+atomNames[groups[2]]+atomNames[groups[3]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = delta("<<posNames[groups[0]]<<", "<<posNames[groups[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = delta("<<posNames[groups[2]]<<", "<<posNames[groups[1]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        if (computedDeltas.count(deltaName3) == 0) {
-            compute<<"real4 delta"<<deltaName3<<" = delta("<<posNames[groups[2]]<<", "<<posNames[groups[3]]<<", "<<force.usesPeriodicBoundaryConditions()<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName3);
-        }
-        compute<<"real4 "<<crossName1<<" = computeCross(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        compute<<"real4 "<<crossName2<<" = computeCross(delta"<<deltaName2<<", delta"<<deltaName3<<");\n";
-        compute<<"real "<<dihedralName<<" = computeAngle("<<crossName1<<", "<<crossName2<<");\n";
-        compute<<dihedralName<<" *= (delta"<<deltaName1<<".x*"<<crossName2<<".x + delta"<<deltaName1<<".y*"<<crossName2<<".y + delta"<<deltaName1<<".z*"<<crossName2<<".z < 0 ? -1 : 1);\n";
-        variables[dihedral.first] = dihedralName;
-        forceExpressions["real dEdDihedral"+cc.intToString(index)+" = "] = energyExpression.differentiate(dihedral.first).optimize();
-        index++;
-    }
-
-    // Now evaluate the expressions.
-
     for (int i = 0; i < (int) params->getParameterInfos().size(); i++) {
         ComputeParameterInfo& parameter = params->getParameterInfos()[i];
         extraArgs<<", GLOBAL const "<<parameter.getType()<<"* RESTRICT globalParams"<<i;
@@ -1776,82 +1610,23 @@ void CommonCalcCustomCentroidBondForceKernel::initialize(const System& system, c
                 if (allParamDerivNames[index] == force.getEnergyParameterDerivativeName(i))
                     saveParamDerivs << "energyParamDerivs[GLOBAL_ID*" << numDerivs << "+" << index << "] += energyParamDeriv" << i << ";\n";
     }
-    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp");
-
-    // Finally, apply forces to groups.
-
     vector<string> forceNames;
     for (int i = 0; i < groupsPerBond; i++) {
         string istr = cc.intToString(i+1);
         string forceName = "force"+istr;
         forceNames.push_back(forceName);
         compute<<"real3 "<<forceName<<" = make_real3(0);\n";
-        compute<<"{\n";
         Lepton::ParsedExpression forceExpressionX = energyExpression.differentiate("x"+istr).optimize();
         Lepton::ParsedExpression forceExpressionY = energyExpression.differentiate("y"+istr).optimize();
         Lepton::ParsedExpression forceExpressionZ = energyExpression.differentiate("z"+istr).optimize();
-        map<string, Lepton::ParsedExpression> expressions;
         if (!isZeroExpression(forceExpressionX))
-            expressions[forceName+".x -= "] = forceExpressionX;
+            forceExpressions[forceName+".x -= "] = forceExpressionX;
         if (!isZeroExpression(forceExpressionY))
-            expressions[forceName+".y -= "] = forceExpressionY;
+            forceExpressions[forceName+".y -= "] = forceExpressionY;
         if (!isZeroExpression(forceExpressionZ))
-            expressions[forceName+".z -= "] = forceExpressionZ;
-        if (expressions.size() > 0)
-            compute<<cc.getExpressionUtilities().createExpressions(expressions, variables, functionList, functionDefinitions, "coordtemp");
-        compute<<"}\n";
+            forceExpressions[forceName+".z -= "] = forceExpressionZ;
     }
-    index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& groups = distance.second;
-        string deltaName = atomNames[groups[0]]+atomNames[groups[1]];
-        string value = "(dEdDistance"+cc.intToString(index)+"/r_"+deltaName+")*trimTo3(delta"+deltaName+")";
-        compute<<forceNames[groups[0]]<<" += "<<"-"<<value<<";\n";
-        compute<<forceNames[groups[1]]<<" += "<<value<<";\n";
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& groups = angle.second;
-        string deltaName1 = atomNames[groups[1]]+atomNames[groups[0]];
-        string deltaName2 = atomNames[groups[1]]+atomNames[groups[2]];
-        compute<<"{\n";
-        compute<<"real3 crossProd = trimTo3(cross(delta"<<deltaName2<<", delta"<<deltaName1<<"));\n";
-        compute<<"real lengthCross = max(SQRT(dot(crossProd, crossProd)), (real) 1e-6f);\n";
-        compute<<"real3 deltaCross0 = -cross(trimTo3(delta"<<deltaName1<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName1<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross2 = cross(trimTo3(delta"<<deltaName2<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName2<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross1 = -(deltaCross0+deltaCross2);\n";
-        compute<<forceNames[groups[0]]<<" += deltaCross0;\n";
-        compute<<forceNames[groups[1]]<<" += deltaCross1;\n";
-        compute<<forceNames[groups[2]]<<" += deltaCross2;\n";
-        compute<<"}\n";
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& groups = dihedral.second;
-        string deltaName1 = atomNames[groups[0]]+atomNames[groups[1]];
-        string deltaName2 = atomNames[groups[2]]+atomNames[groups[1]];
-        string deltaName3 = atomNames[groups[2]]+atomNames[groups[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        compute<<"{\n";
-        compute<<"real r = sqrt(delta"<<deltaName2<<".w);\n";
-        compute<<"real4 ff;\n";
-        compute<<"ff.x = (-dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName1<<".w;\n";
-        compute<<"ff.y = (delta"<<deltaName1<<".x*delta"<<deltaName2<<".x + delta"<<deltaName1<<".y*delta"<<deltaName2<<".y + delta"<<deltaName1<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.z = (delta"<<deltaName3<<".x*delta"<<deltaName2<<".x + delta"<<deltaName3<<".y*delta"<<deltaName2<<".y + delta"<<deltaName3<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.w = (dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName2<<".w;\n";
-        compute<<"real3 internalF0 = ff.x*trimTo3("<<crossName1<<");\n";
-        compute<<"real3 internalF3 = ff.w*trimTo3("<<crossName2<<");\n";
-        compute<<"real3 s = ff.y*internalF0 - ff.z*internalF3;\n";
-        compute<<forceNames[groups[0]]<<" += internalF0;\n";
-        compute<<forceNames[groups[1]]<<" += s-internalF0;\n";
-        compute<<forceNames[groups[2]]<<" += -s-internalF3;\n";
-        compute<<forceNames[groups[3]]<<" += internalF3;\n";
-        compute<<"}\n";
-        index++;
-    }
+    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp", "real", force.usesPeriodicBoundaryConditions());
     
     // Save the forces to global memory.
     
@@ -1869,7 +1644,7 @@ void CommonCalcCustomCentroidBondForceKernel::initialize(const System& system, c
     replacements["COMPUTE_FORCE"] = compute.str();
     replacements["INIT_PARAM_DERIVS"] = initParamDerivs.str();
     replacements["SAVE_PARAM_DERIVS"] = saveParamDerivs.str();
-    ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customCentroidBond, replacements));
+    ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::pointFunctions+CommonKernelSources::customCentroidBond, replacements));
     computeCentersKernel = program->createKernel("computeGroupCenters");
     computeCentersKernel->addArg(numGroups);
     computeCentersKernel->addArg(cc.getPosq());
@@ -3900,7 +3675,7 @@ public:
         if (group1 < force.getNumDonors() && group2 < force.getNumDonors()) {
             force.getDonorParameters(group1, p1, p2, p3, params1);
             force.getDonorParameters(group2, p1, p2, p3, params2);
-            return (params1 == params2 && params1 == params2);
+            return (params1 == params2);
         }
         if (group1 < force.getNumDonors() || group2 < force.getNumDonors())
             return false;
@@ -3909,7 +3684,7 @@ public:
         if (group1 < force.getNumAcceptors() && group2 < force.getNumAcceptors()) {
             force.getAcceptorParameters(group1, p1, p2, p3, params1);
             force.getAcceptorParameters(group2, p1, p2, p3, params2);
-            return (params1 == params2 && params1 == params2);
+            return (params1 == params2);
         }
         if (group1 < force.getNumAcceptors() || group2 < force.getNumAcceptors())
             return false;
@@ -5154,167 +4929,33 @@ void CommonCalcCustomManyParticleForceKernel::initialize(const System& system, c
         neighbors.initialize<int>(cc, maxNeighborPairs, "customManyParticleNeighbors");
     }
 
-    // Now to generate the kernel.  First, it needs to calculate all distances, angles,
-    // and dihedrals the expression depends on.
+    // Generate the kernel.
 
-    map<string, vector<int> > distances;
-    map<string, vector<int> > angles;
-    map<string, vector<int> > dihedrals;
-    Lepton::ParsedExpression energyExpression = CustomManyParticleForceImpl::prepareExpression(force, functions, distances, angles, dihedrals);
+    Lepton::ParsedExpression energyExpression = CustomManyParticleForceImpl::prepareExpression(force, functions);
     map<string, Lepton::ParsedExpression> forceExpressions;
-    set<string> computedDeltas;
-    vector<string> atomNames, posNames;
-    for (int i = 0; i < particlesPerSet; i++) {
-        string index = cc.intToString(i+1);
-        atomNames.push_back("P"+index);
-        posNames.push_back("pos"+index);
-    }
     stringstream compute;
-    int index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& atoms = distance.second;
-        string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
-        if (computedDeltas.count(deltaName) == 0) {
-            compute<<"real4 delta"<<deltaName<<" = delta("<<posNames[atoms[0]]<<", "<<posNames[atoms[1]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName);
-        }
-        compute<<"real r_"<<deltaName<<" = sqrt(delta"<<deltaName<<".w);\n";
-        variables.push_back(makeVariable(distance.first, "r_"+deltaName));
-        forceExpressions["real dEdDistance"+cc.intToString(index)+" = "] = energyExpression.differentiate(distance.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& atoms = angle.second;
-        string deltaName1 = atomNames[atoms[1]]+atomNames[atoms[0]];
-        string deltaName2 = atomNames[atoms[1]]+atomNames[atoms[2]];
-        string angleName = "angle_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = delta("<<posNames[atoms[1]]<<", "<<posNames[atoms[0]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = delta("<<posNames[atoms[1]]<<", "<<posNames[atoms[2]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        compute<<"real "<<angleName<<" = computeAngle(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        variables.push_back(makeVariable(angle.first, angleName));
-        forceExpressions["real dEdAngle"+cc.intToString(index)+" = "] = energyExpression.differentiate(angle.first).optimize();
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& atoms = dihedral.second;
-        string deltaName1 = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string deltaName2 = atomNames[atoms[2]]+atomNames[atoms[1]];
-        string deltaName3 = atomNames[atoms[2]]+atomNames[atoms[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        string dihedralName = "dihedral_"+atomNames[atoms[0]]+atomNames[atoms[1]]+atomNames[atoms[2]]+atomNames[atoms[3]];
-        if (computedDeltas.count(deltaName1) == 0) {
-            compute<<"real4 delta"<<deltaName1<<" = delta("<<posNames[atoms[0]]<<", "<<posNames[atoms[1]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName1);
-        }
-        if (computedDeltas.count(deltaName2) == 0) {
-            compute<<"real4 delta"<<deltaName2<<" = delta("<<posNames[atoms[2]]<<", "<<posNames[atoms[1]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName2);
-        }
-        if (computedDeltas.count(deltaName3) == 0) {
-            compute<<"real4 delta"<<deltaName3<<" = delta("<<posNames[atoms[2]]<<", "<<posNames[atoms[3]]<<", periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);\n";
-            computedDeltas.insert(deltaName3);
-        }
-        compute<<"real4 "<<crossName1<<" = computeCross(delta"<<deltaName1<<", delta"<<deltaName2<<");\n";
-        compute<<"real4 "<<crossName2<<" = computeCross(delta"<<deltaName2<<", delta"<<deltaName3<<");\n";
-        compute<<"real "<<dihedralName<<" = computeAngle("<<crossName1<<", "<<crossName2<<");\n";
-        compute<<dihedralName<<" *= (delta"<<deltaName1<<".x*"<<crossName2<<".x + delta"<<deltaName1<<".y*"<<crossName2<<".y + delta"<<deltaName1<<".z*"<<crossName2<<".z < 0 ? -1 : 1);\n";
-        variables.push_back(makeVariable(dihedral.first, dihedralName));
-        forceExpressions["real dEdDihedral"+cc.intToString(index)+" = "] = energyExpression.differentiate(dihedral.first).optimize();
-        index++;
-    }
-
-    // Now evaluate the expressions.
-
     for (int i = 0; i < (int) params->getParameterInfos().size(); i++) {
         ComputeParameterInfo& parameter = params->getParameterInfos()[i];
         compute<<parameter.getType()<<" params"<<(i+1)<<" = global_params"<<(i+1)<<"[index];\n";
     }
     forceExpressions["energy += "] = energyExpression;
-    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp");
-
-    // Apply forces to atoms.
-
     vector<string> forceNames;
     for (int i = 0; i < particlesPerSet; i++) {
         string istr = cc.intToString(i+1);
         string forceName = "force"+istr;
         forceNames.push_back(forceName);
         compute<<"real3 "<<forceName<<" = make_real3(0);\n";
-        compute<<"{\n";
         Lepton::ParsedExpression forceExpressionX = energyExpression.differentiate("x"+istr).optimize();
         Lepton::ParsedExpression forceExpressionY = energyExpression.differentiate("y"+istr).optimize();
         Lepton::ParsedExpression forceExpressionZ = energyExpression.differentiate("z"+istr).optimize();
-        map<string, Lepton::ParsedExpression> expressions;
         if (!isZeroExpression(forceExpressionX))
-            expressions[forceName+".x -= "] = forceExpressionX;
+            forceExpressions[forceName+".x -= "] = forceExpressionX;
         if (!isZeroExpression(forceExpressionY))
-            expressions[forceName+".y -= "] = forceExpressionY;
+            forceExpressions[forceName+".y -= "] = forceExpressionY;
         if (!isZeroExpression(forceExpressionZ))
-            expressions[forceName+".z -= "] = forceExpressionZ;
-        if (expressions.size() > 0)
-            compute<<cc.getExpressionUtilities().createExpressions(expressions, variables, functionList, functionDefinitions, "coordtemp");
-        compute<<"}\n";
+            forceExpressions[forceName+".z -= "] = forceExpressionZ;
     }
-    index = 0;
-    for (auto& distance : distances) {
-        const vector<int>& atoms = distance.second;
-        string deltaName = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string value = "(dEdDistance"+cc.intToString(index)+"/r_"+deltaName+")*trimTo3(delta"+deltaName+")";
-        compute<<forceNames[atoms[0]]<<" += "<<"-"<<value<<";\n";
-        compute<<forceNames[atoms[1]]<<" += "<<value<<";\n";
-        index++;
-    }
-    index = 0;
-    for (auto& angle : angles) {
-        const vector<int>& atoms = angle.second;
-        string deltaName1 = atomNames[atoms[1]]+atomNames[atoms[0]];
-        string deltaName2 = atomNames[atoms[1]]+atomNames[atoms[2]];
-        compute<<"{\n";
-        compute<<"real3 crossProd = trimTo3(cross(delta"<<deltaName2<<", delta"<<deltaName1<<"));\n";
-        compute<<"real lengthCross = max(SQRT(dot(crossProd, crossProd)), (real) 1e-6f);\n";
-        compute<<"real3 deltaCross0 = -cross(trimTo3(delta"<<deltaName1<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName1<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross2 = cross(trimTo3(delta"<<deltaName2<<"), crossProd)*dEdAngle"<<cc.intToString(index)<<"/(delta"<<deltaName2<<".w*lengthCross);\n";
-        compute<<"real3 deltaCross1 = -(deltaCross0+deltaCross2);\n";
-        compute<<forceNames[atoms[0]]<<" += deltaCross0;\n";
-        compute<<forceNames[atoms[1]]<<" += deltaCross1;\n";
-        compute<<forceNames[atoms[2]]<<" += deltaCross2;\n";
-        compute<<"}\n";
-        index++;
-    }
-    index = 0;
-    for (auto& dihedral : dihedrals) {
-        const vector<int>& atoms = dihedral.second;
-        string deltaName1 = atomNames[atoms[0]]+atomNames[atoms[1]];
-        string deltaName2 = atomNames[atoms[2]]+atomNames[atoms[1]];
-        string deltaName3 = atomNames[atoms[2]]+atomNames[atoms[3]];
-        string crossName1 = "cross_"+deltaName1+"_"+deltaName2;
-        string crossName2 = "cross_"+deltaName2+"_"+deltaName3;
-        compute<<"{\n";
-        compute<<"real r = sqrt(delta"<<deltaName2<<".w);\n";
-        compute<<"real4 ff;\n";
-        compute<<"ff.x = (-dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName1<<".w;\n";
-        compute<<"ff.y = (delta"<<deltaName1<<".x*delta"<<deltaName2<<".x + delta"<<deltaName1<<".y*delta"<<deltaName2<<".y + delta"<<deltaName1<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.z = (delta"<<deltaName3<<".x*delta"<<deltaName2<<".x + delta"<<deltaName3<<".y*delta"<<deltaName2<<".y + delta"<<deltaName3<<".z*delta"<<deltaName2<<".z)/delta"<<deltaName2<<".w;\n";
-        compute<<"ff.w = (dEdDihedral"<<cc.intToString(index)<<"*r)/"<<crossName2<<".w;\n";
-        compute<<"real3 internalF0 = ff.x*trimTo3("<<crossName1<<");\n";
-        compute<<"real3 internalF3 = ff.w*trimTo3("<<crossName2<<");\n";
-        compute<<"real3 s = ff.y*internalF0 - ff.z*internalF3;\n";
-        compute<<forceNames[atoms[0]]<<" += internalF0;\n";
-        compute<<forceNames[atoms[1]]<<" += s-internalF0;\n";
-        compute<<forceNames[atoms[2]]<<" += -s-internalF3;\n";
-        compute<<forceNames[atoms[3]]<<" += internalF3;\n";
-        compute<<"}\n";
-        index++;
-    }
+    compute << cc.getExpressionUtilities().createExpressions(forceExpressions, variables, functionList, functionDefinitions, "temp", "real", force.usesPeriodicBoundaryConditions());
     
     // Store forces to global memory.
     
@@ -5449,7 +5090,7 @@ void CommonCalcCustomManyParticleForceKernel::initialize(const System& system, c
     defines["TILE_SIZE"] = cc.intToString(32);
     defines["NUM_BLOCKS"] = cc.intToString(numAtomBlocks);
     defines["FIND_NEIGHBORS_WORKGROUP_SIZE"] = cc.intToString(findNeighborsWorkgroupSize);
-    ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customManyParticle, replacements), defines);
+    ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::pointFunctions+CommonKernelSources::customManyParticle, replacements), defines);
     forceKernel = program->createKernel("computeInteraction");
     blockBoundsKernel = program->createKernel("findBlockBounds");
     neighborsKernel = program->createKernel("findNeighbors");
@@ -5985,6 +5626,225 @@ void CommonCalcGayBerneForceKernel::sortAtoms() {
     exclusionStartIndex.upload(startIndexVec);
 }
 
+class CommonCalcCustomCVForceKernel::ForceInfo : public ComputeForceInfo {
+public:
+    ForceInfo(ComputeForceInfo& force) : force(force) {
+    }
+    bool areParticlesIdentical(int particle1, int particle2) {
+        return force.areParticlesIdentical(particle1, particle2);
+    }
+    int getNumParticleGroups() {
+        return force.getNumParticleGroups();
+    }
+    void getParticlesInGroup(int index, std::vector<int>& particles) {
+        force.getParticlesInGroup(index, particles);
+    }
+    bool areGroupsIdentical(int group1, int group2) {
+        return force.areGroupsIdentical(group1, group2);
+    }
+private:
+    ComputeForceInfo& force;
+};
+
+class CommonCalcCustomCVForceKernel::ReorderListener : public ComputeContext::ReorderListener {
+public:
+    ReorderListener(ComputeContext& cc, ArrayInterface& invAtomOrder) : cc(cc), invAtomOrder(invAtomOrder) {
+    }
+    void execute() {
+        vector<int> invOrder(cc.getPaddedNumAtoms());
+        const vector<int>& order = cc.getAtomIndex();
+        for (int i = 0; i < order.size(); i++)
+            invOrder[order[i]] = i;
+        invAtomOrder.upload(invOrder);
+    }
+private:
+    ComputeContext& cc;
+    ArrayInterface& invAtomOrder;
+};
+
+void CommonCalcCustomCVForceKernel::initialize(const System& system, const CustomCVForce& force, ContextImpl& innerContext) {
+    int numCVs = force.getNumCollectiveVariables();
+    for (int i = 0; i < force.getNumGlobalParameters(); i++)
+        globalParameterNames.push_back(force.getGlobalParameterName(i));
+    for (int i = 0; i < numCVs; i++)
+        variableNames.push_back(force.getCollectiveVariableName(i));
+    for (int i = 0; i < force.getNumEnergyParameterDerivatives(); i++) {
+        string name = force.getEnergyParameterDerivativeName(i);
+        paramDerivNames.push_back(name);
+        cc.addEnergyParameterDerivative(name);
+    }
+
+    // Create custom functions for the tabulated functions.
+
+    map<string, Lepton::CustomFunction*> functions;
+    for (int i = 0; i < (int) force.getNumTabulatedFunctions(); i++)
+        functions[force.getTabulatedFunctionName(i)] = createReferenceTabulatedFunction(force.getTabulatedFunction(i));
+
+    // Create the expressions.
+
+    Lepton::ParsedExpression energyExpr = Lepton::Parser::parse(force.getEnergyFunction(), functions);
+    energyExpression = energyExpr.createProgram();
+    variableDerivExpressions.clear();
+    for (auto& name : variableNames)
+        variableDerivExpressions.push_back(energyExpr.differentiate(name).optimize().createProgram());
+    paramDerivExpressions.clear();
+    for (auto& name : paramDerivNames)
+        paramDerivExpressions.push_back(energyExpr.differentiate(name).optimize().createProgram());
+
+    // Delete the custom functions.
+
+    for (auto& function : functions)
+        delete function.second;
+
+    // Copy parameter derivatives from the inner context.
+
+    ComputeContext& cc2 = getInnerComputeContext(innerContext);
+    for (auto& param : cc2.getEnergyParamDerivNames())
+        cc.addEnergyParameterDerivative(param);
+    
+    // Create arrays for storing information.
+    
+    cvForces.resize(numCVs);
+    for (int i = 0; i < numCVs; i++)
+        cvForces[i].initialize<long long>(cc, 3*cc.getPaddedNumAtoms(), "cvForce");
+    invAtomOrder.initialize<int>(cc, cc.getPaddedNumAtoms(), "invAtomOrder");
+    innerInvAtomOrder.initialize<int>(cc, cc.getPaddedNumAtoms(), "innerInvAtomOrder");
+    
+    // Create the kernels.
+    
+    stringstream args, add;
+    for (int i = 0; i < numCVs; i++) {
+        args << ", GLOBAL mm_long * RESTRICT force" << i << ", real dEdV" << i;
+        add << "forces[i] += (mm_long) (force" << i << "[i]*dEdV" << i << ");\n";
+    }
+    map<string, string> replacements;
+    replacements["PARAMETER_ARGUMENTS"] = args.str();
+    replacements["ADD_FORCES"] = add.str();
+    ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customCVForce, replacements));
+    copyStateKernel = program->createKernel("copyState");
+    copyStateKernel->addArg(cc.getPosq());
+    copyStateKernel->addArg(cc2.getPosq());
+    if (cc.getUseMixedPrecision()) {
+        copyStateKernel->addArg(cc.getPosqCorrection());
+        copyStateKernel->addArg(cc2.getPosqCorrection());
+    }
+    copyStateKernel->addArg(cc.getVelm());
+    copyStateKernel->addArg(cc2.getVelm());
+    copyStateKernel->addArg(cc.getAtomIndexArray());
+    copyStateKernel->addArg(innerInvAtomOrder);
+    copyStateKernel->addArg(cc.getNumAtoms());
+    copyForcesKernel = program->createKernel("copyForces");
+    copyForcesKernel->addArg();
+    copyForcesKernel->addArg(invAtomOrder);
+    copyForcesKernel->addArg(cc2.getLongForceBuffer());
+    copyForcesKernel->addArg(cc2.getAtomIndexArray());
+    copyForcesKernel->addArg(cc.getNumAtoms());
+    copyForcesKernel->addArg(cc.getPaddedNumAtoms());
+    addForcesKernel = program->createKernel("addForces");
+    addForcesKernel->addArg(cc.getLongForceBuffer());
+    addForcesKernel->addArg(cc.getLongForceBuffer().getSize());
+    for (int i = 0; i < numCVs; i++) {
+        addForcesKernel->addArg();
+        addForcesKernel->addArg();
+    }
+
+    // This context needs to respect all forces in the inner context when reordering atoms.
+
+    for (auto* info : cc2.getForceInfos())
+        cc.addForce(new ForceInfo(*info));
+}
+
+double CommonCalcCustomCVForceKernel::execute(ContextImpl& context, ContextImpl& innerContext, bool includeForces, bool includeEnergy) {
+    copyState(context, innerContext);
+    int numCVs = variableNames.size();
+    int numAtoms = cc.getNumAtoms();
+    int paddedNumAtoms = cc.getPaddedNumAtoms();
+    vector<double> cvValues;
+    vector<map<string, double> > cvDerivs(numCVs);
+    for (int i = 0; i < numCVs; i++) {
+        cvValues.push_back(innerContext.calcForcesAndEnergy(true, true, 1<<i));
+        copyForcesKernel->setArg(0, cvForces[i]);
+        copyForcesKernel->execute(numAtoms);
+        innerContext.getEnergyParameterDerivatives(cvDerivs[i]);
+    }
+    
+    // Compute the energy and forces.
+    
+    map<string, double> variables;
+    for (auto& name : globalParameterNames)
+        variables[name] = context.getParameter(name);
+    for (int i = 0; i < numCVs; i++)
+        variables[variableNames[i]] = cvValues[i];
+    double energy = energyExpression.evaluate(variables);
+    for (int i = 0; i < numCVs; i++) {
+        double dEdV = variableDerivExpressions[i].evaluate(variables);
+        addForcesKernel->setArg(2*i+2, cvForces[i]);
+        if (cc.getUseDoublePrecision())
+            addForcesKernel->setArg(2*i+3, dEdV);
+        else
+            addForcesKernel->setArg(2*i+3, (float) dEdV);
+    }
+    addForcesKernel->execute(numAtoms);
+    
+    // Compute the energy parameter derivatives.
+    
+    map<string, double>& energyParamDerivs = cc.getEnergyParamDerivWorkspace();
+    for (int i = 0; i < paramDerivExpressions.size(); i++)
+        energyParamDerivs[paramDerivNames[i]] += paramDerivExpressions[i].evaluate(variables);
+    for (int i = 0; i < numCVs; i++) {
+        double dEdV = variableDerivExpressions[i].evaluate(variables);
+        for (auto& deriv : cvDerivs[i])
+            energyParamDerivs[deriv.first] += dEdV*deriv.second;
+    }
+    return energy;
+}
+
+void CommonCalcCustomCVForceKernel::copyState(ContextImpl& context, ContextImpl& innerContext) {
+    int numAtoms = cc.getNumAtoms();
+    ComputeContext& cc2 = getInnerComputeContext(innerContext);
+    if (!hasInitializedListeners) {
+        hasInitializedListeners = true;
+        
+        // Initialize the listeners.
+        
+        ReorderListener* listener1 = new ReorderListener(cc, invAtomOrder);
+        ReorderListener* listener2 = new ReorderListener(cc2, innerInvAtomOrder);
+        cc.addReorderListener(listener1);
+        cc2.addReorderListener(listener2);
+        listener1->execute();
+        listener2->execute();
+    }
+    copyStateKernel->execute(numAtoms);
+    Vec3 a, b, c;
+    context.getPeriodicBoxVectors(a, b, c);
+    innerContext.setPeriodicBoxVectors(a, b, c);
+    innerContext.setTime(context.getTime());
+    map<string, double> innerParameters = innerContext.getParameters();
+    for (auto& param : innerParameters)
+        innerContext.setParameter(param.first, context.getParameter(param.first));
+}
+
+void CommonCalcCustomCVForceKernel::copyParametersToContext(ContextImpl& context, const CustomCVForce& force) {
+    // Create custom functions for the tabulated functions.
+
+    map<string, CustomFunction*> functions;
+    for (int i = 0; i < (int) force.getNumTabulatedFunctions(); i++)
+        functions[force.getTabulatedFunctionName(i)] = createReferenceTabulatedFunction(force.getTabulatedFunction(i));
+
+    // Replace tabulated functions in the expressions.
+
+    replaceFunctionsInExpression(functions, energyExpression);
+    for (auto& expression : variableDerivExpressions)
+        replaceFunctionsInExpression(functions, expression);
+    for (auto& expression : paramDerivExpressions)
+        replaceFunctionsInExpression(functions, expression);
+
+    // Delete the custom functions.
+
+    for (auto& function : functions)
+        delete function.second;
+}
+
 void CommonIntegrateVerletStepKernel::initialize(const System& system, const VerletIntegrator& integrator) {
     cc.initializeContexts();
     cc.setAsCurrent();
@@ -6137,27 +5997,26 @@ double CommonIntegrateLangevinStepKernel::computeKineticEnergy(ContextImpl& cont
     return cc.getIntegrationUtilities().computeKineticEnergy(0.5*integrator.getStepSize());
 }
 
-void CommonIntegrateBAOABStepKernel::initialize(const System& system, const BAOABLangevinIntegrator& integrator) {
+void CommonIntegrateLangevinMiddleStepKernel::initialize(const System& system, const LangevinMiddleIntegrator& integrator) {
     cc.initializeContexts();
     cc.setAsCurrent();
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
-    ComputeProgram program = cc.compileProgram(CommonKernelSources::baoab);
-    kernel1 = program->createKernel("integrateBAOABPart1");
-    kernel2 = program->createKernel("integrateBAOABPart2");
-    kernel3 = program->createKernel("integrateBAOABPart3");
-    kernel4 = program->createKernel("integrateBAOABPart4");
+    ComputeProgram program = cc.compileProgram(CommonKernelSources::langevinMiddle);
+    kernel1 = program->createKernel("integrateLangevinMiddlePart1");
+    kernel2 = program->createKernel("integrateLangevinMiddlePart2");
+    kernel3 = program->createKernel("integrateLangevinMiddlePart3");
     if (cc.getUseDoublePrecision() || cc.getUseMixedPrecision()) {
-        params.initialize<double>(cc, 2, "baoabParams");
+        params.initialize<double>(cc, 2, "langevinMiddleParams");
         oldDelta.initialize<mm_double4>(cc, cc.getPaddedNumAtoms(), "oldDelta");
     }
     else {
-        params.initialize<float>(cc, 2, "baoabParams");
+        params.initialize<float>(cc, 2, "langevinMiddleParams");
         oldDelta.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "oldDelta");
     }
     prevStepSize = -1.0;
 }
 
-void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLangevinIntegrator& integrator, bool& forcesAreValid) {
+void CommonIntegrateLangevinMiddleStepKernel::execute(ContextImpl& context, const LangevinMiddleIntegrator& integrator) {
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -6167,11 +6026,8 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
         kernel1->addArg(paddedNumAtoms);
         kernel1->addArg(cc.getVelm());
         kernel1->addArg(cc.getLongForceBuffer());
-        kernel1->addArg(integration.getPosDelta());
-        kernel1->addArg(oldDelta);
         kernel1->addArg(integration.getStepSize());
         kernel2->addArg(numAtoms);
-        kernel2->addArg(cc.getPosq());
         kernel2->addArg(cc.getVelm());
         kernel2->addArg(integration.getPosDelta());
         kernel2->addArg(oldDelta);
@@ -6179,8 +6035,6 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
         kernel2->addArg(integration.getStepSize());
         kernel2->addArg(integration.getRandom());
         kernel2->addArg(); // Random index will be set just before it is executed.
-        if (cc.getUseMixedPrecision())
-            kernel2->addArg(cc.getPosqCorrection());
         kernel3->addArg(numAtoms);
         kernel3->addArg(cc.getPosq());
         kernel3->addArg(cc.getVelm());
@@ -6189,15 +6043,6 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
         kernel3->addArg(integration.getStepSize());
         if (cc.getUseMixedPrecision())
             kernel3->addArg(cc.getPosqCorrection());
-        kernel4->addArg(numAtoms);
-        kernel4->addArg(paddedNumAtoms);
-        kernel4->addArg(cc.getVelm());
-        kernel4->addArg(cc.getLongForceBuffer());
-        kernel4->addArg(integration.getStepSize());
-    }
-    if (!forcesAreValid) {
-        context.calcForcesAndEnergy(true, false);
-        forcesAreValid = true;
     }
     double temperature = integrator.getTemperature();
     double friction = integrator.getFriction();
@@ -6220,15 +6065,12 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
 
     // Perform the integration.
 
-    kernel2->setArg(8, integration.prepareRandomNumbers(cc.getPaddedNumAtoms()));
+    kernel2->setArg(7, integration.prepareRandomNumbers(cc.getPaddedNumAtoms()));
     kernel1->execute(numAtoms);
-    integration.applyConstraints(integrator.getConstraintTolerance());
+    integration.applyVelocityConstraints(integrator.getConstraintTolerance());
     kernel2->execute(numAtoms);
     integration.applyConstraints(integrator.getConstraintTolerance());
     kernel3->execute(numAtoms);
-    context.calcForcesAndEnergy(true, false);
-    kernel4->execute(numAtoms);
-    integration.applyVelocityConstraints(integrator.getConstraintTolerance());
     integration.computeVirtualSites();
 
     // Update the time and step count.
@@ -6236,8 +6078,6 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
     cc.setTime(cc.getTime()+stepSize);
     cc.setStepCount(cc.getStepCount()+1);
     cc.reorderAtoms();
-    if (cc.getAtomsWereReordered())
-        forcesAreValid = false;
     
     // Reduce UI lag.
     
@@ -6246,8 +6086,675 @@ void CommonIntegrateBAOABStepKernel::execute(ContextImpl& context, const BAOABLa
 #endif
 }
 
-double CommonIntegrateBAOABStepKernel::computeKineticEnergy(ContextImpl& context, const BAOABLangevinIntegrator& integrator) {
+double CommonIntegrateLangevinMiddleStepKernel::computeKineticEnergy(ContextImpl& context, const LangevinMiddleIntegrator& integrator) {
     return cc.getIntegrationUtilities().computeKineticEnergy(0.0);
+}
+
+void CommonIntegrateNoseHooverStepKernel::initialize(const System& system, const NoseHooverIntegrator& integrator) {
+    cc.initializeContexts();
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    map<string, string> defines;
+    defines["BOLTZ"] = cc.doubleToString(BOLTZ);
+    ComputeProgram program = cc.compileProgram(CommonKernelSources::noseHooverIntegrator, defines);
+    kernel1 = program->createKernel("integrateNoseHooverMiddlePart1");
+    kernel2 = program->createKernel("integrateNoseHooverMiddlePart2");
+    kernel3 = program->createKernel("integrateNoseHooverMiddlePart3");
+    kernel4 = program->createKernel("integrateNoseHooverMiddlePart4");
+    if (useDouble) {
+        oldDelta.initialize<mm_double4>(cc, cc.getPaddedNumAtoms(), "oldDelta");
+    } else {
+        oldDelta.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "oldDelta");
+    }
+    kernelHardWall = program->createKernel("integrateNoseHooverHardWall");
+    prevMaxPairDistance = -1.0f;
+    maxPairDistanceBuffer.initialize<float>(cc, 1, "maxPairDistanceBuffer");
+
+    int workGroupSize = std::min(cc.getMaxThreadBlockSize(), 512);
+    defines["WORK_GROUP_SIZE"] = std::to_string(workGroupSize);
+
+    defines["BEGIN_YS_LOOP"] = "const real arr[1] = {1.0};"
+                               "for(int i=0;i<1;++i) {"
+                               "const real ys = arr[i];";
+    defines["END_YS_LOOP"] = "}";
+    program = cc.compileProgram(CommonKernelSources::noseHooverChain, defines);
+    propagateKernels[1] = program->createKernel("propagateNoseHooverChain");
+
+    defines["BEGIN_YS_LOOP"] = "const real arr[3] = {0.828981543588751, -0.657963087177502, 0.828981543588751};"
+                               "for(int i=0;i<3;++i) {"
+                               "const real ys = arr[i];";
+    program = cc.compileProgram(CommonKernelSources::noseHooverChain, defines);
+    propagateKernels[3] = program->createKernel("propagateNoseHooverChain");
+
+    defines["BEGIN_YS_LOOP"] = "const real arr[5] = {0.2967324292201065, 0.2967324292201065, -0.186929716880426, 0.2967324292201065, 0.2967324292201065};"
+                               "for(int i=0;i<5;++i) {"
+                               "const real ys = arr[i];";
+    program = cc.compileProgram(CommonKernelSources::noseHooverChain, defines);
+    propagateKernels[5] = program->createKernel("propagateNoseHooverChain");
+
+    defines["BEGIN_YS_LOOP"] = "const real arr[7] = {0.784513610477560, 0.235573213359357, -1.17767998417887, 1.31518632068391,-1.17767998417887, 0.235573213359357, 0.784513610477560};"
+                               "for(int i=0;i<7;++i) {"
+                               "const real ys = arr[i];";
+    program = cc.compileProgram(CommonKernelSources::noseHooverChain, defines);
+    propagateKernels[7] = program->createKernel("propagateNoseHooverChain");
+    program = cc.compileProgram(CommonKernelSources::noseHooverChain, defines);
+    reduceEnergyKernel = program->createKernel("reduceEnergyPair");
+
+    computeHeatBathEnergyKernel = program->createKernel("computeHeatBathEnergy");
+    computeAtomsKineticEnergyKernel = program->createKernel("computeAtomsKineticEnergy");
+    computePairsKineticEnergyKernel = program->createKernel("computePairsKineticEnergy");
+    scaleAtomsVelocitiesKernel = program->createKernel("scaleAtomsVelocities");
+    scalePairsVelocitiesKernel = program->createKernel("scalePairsVelocities");
+    int energyBufferSize = cc.getEnergyBuffer().getSize();
+    if (cc.getUseDoublePrecision() || cc.getUseMixedPrecision())
+        energyBuffer.initialize<mm_double2>(cc, energyBufferSize, "energyBuffer");
+    else
+        energyBuffer.initialize<mm_float2>(cc, energyBufferSize, "energyBuffer");
+}
+
+void CommonIntegrateNoseHooverStepKernel::execute(ContextImpl& context, const NoseHooverIntegrator& integrator, bool &forcesAreValid) {
+    IntegrationUtilities& integration = cc.getIntegrationUtilities();
+    int paddedNumAtoms = cc.getPaddedNumAtoms();
+    double dt = integrator.getStepSize();
+    cc.getIntegrationUtilities().setNextStepSize(dt);
+
+    // If the atom reordering has occured, the forces from the previous step are permuted and thus invalid.
+    // They need to be either sorted or recomputed; here we choose the latter.
+    if (!forcesAreValid || cc.getAtomsWereReordered()) context.calcForcesAndEnergy(true, false, integrator.getIntegrationForceGroups());
+
+    const auto& atomList = integrator.getAllThermostatedIndividualParticles();
+    const auto& pairList = integrator.getAllThermostatedPairs();
+    int numAtoms = atomList.size();
+    int numPairs = pairList.size();
+    int numParticles = numAtoms + 2*numPairs;
+    float maxPairDistance = integrator.getMaximumPairDistance();
+    // Make sure atom and pair metadata is uploaded and has the correct dimensions
+    if (prevMaxPairDistance != maxPairDistance) {
+        std::vector<float> tmp(1, maxPairDistance);
+        maxPairDistanceBuffer.upload(tmp);
+        prevMaxPairDistance = maxPairDistance;
+    }
+    if (numAtoms !=0 && (!atomListBuffer.isInitialized() || atomListBuffer.getSize() != numAtoms)) {
+        if (atomListBuffer.isInitialized())
+            atomListBuffer.resize(atomList.size());
+        else
+            atomListBuffer.initialize<int>(cc, atomList.size(), "atomListBuffer");
+        atomListBuffer.upload(atomList);
+    }
+    if (numPairs !=0 && (!pairListBuffer.isInitialized() || pairListBuffer.getSize() != numPairs)) {
+        if (pairListBuffer.isInitialized()) {
+            pairListBuffer.resize(pairList.size());
+            pairTemperatureBuffer.resize(pairList.size());
+        }
+        else {
+            pairListBuffer.initialize<mm_int2>(cc, pairList.size(), "pairListBuffer");
+            pairTemperatureBuffer.initialize<float>(cc, pairList.size(), "pairTemperatureBuffer");
+        }
+        std::vector<mm_int2> tmp;
+        std::vector<float> tmp2;
+        for(const auto &pair : pairList) {
+            tmp.push_back(mm_int2(std::get<0>(pair), std::get<1>(pair)));
+            tmp2.push_back(std::get<2>(pair));
+        }
+        pairListBuffer.upload(tmp);
+        pairTemperatureBuffer.upload(tmp2);
+    }
+    int totalAtoms = cc.getNumAtoms();
+    if (!hasInitializedKernels) {
+        hasInitializedKernels = true;
+        kernel1->addArg(numAtoms);
+        kernel1->addArg(numPairs);
+        kernel1->addArg(paddedNumAtoms);
+        kernel1->addArg(cc.getVelm());
+        kernel1->addArg(cc.getLongForceBuffer());
+        kernel1->addArg(integration.getStepSize());
+        kernel1->addArg(numAtoms > 0 ? atomListBuffer : cc.getEnergyBuffer()); // The array is not used if num == 0
+        kernel1->addArg(numPairs > 0 ? pairListBuffer : cc.getEnergyBuffer()); // The array is not used if num == 0
+        kernel2->addArg(totalAtoms);
+        kernel2->addArg(cc.getVelm());
+        kernel2->addArg(integration.getPosDelta());
+        kernel2->addArg(oldDelta);
+        kernel2->addArg(integration.getStepSize());
+        kernel3->addArg(totalAtoms);
+        kernel3->addArg(cc.getVelm());
+        kernel3->addArg(integration.getPosDelta());
+        kernel3->addArg(oldDelta);
+        kernel3->addArg(integration.getStepSize());
+        kernel4->addArg(totalAtoms);
+        kernel4->addArg(cc.getPosq());
+        kernel4->addArg(cc.getVelm());
+        kernel4->addArg(integration.getPosDelta());
+        kernel4->addArg(oldDelta);
+        kernel4->addArg(integration.getStepSize());
+        if (cc.getUseMixedPrecision())
+            kernel4->addArg(cc.getPosqCorrection());
+        if (numPairs > 0) {
+            kernelHardWall->addArg(numPairs);
+            kernelHardWall->addArg(maxPairDistanceBuffer);
+            kernelHardWall->addArg(integration.getStepSize());
+            kernelHardWall->addArg(cc.getPosq());
+            kernelHardWall->addArg(cc.getVelm());
+            kernelHardWall->addArg(pairListBuffer);
+            kernelHardWall->addArg(pairTemperatureBuffer);
+            if (cc.getUseMixedPrecision())
+                kernelHardWall->addArg(cc.getPosqCorrection());
+        }
+    }
+
+    /*
+     * Carry out the LF-middle integration (c.f. J. Phys. Chem. A 2019, 123, 6056−6079)
+     */
+    // Velocity update
+    kernel1->execute(std::max(numAtoms, numPairs));
+    integration.applyVelocityConstraints(integrator.getConstraintTolerance());
+    // Position update
+    kernel2->execute(numParticles);
+    // Apply the thermostat
+    int numChains = integrator.getNumThermostats();
+    for(int chain = 0; chain < numChains; ++chain) {
+        const auto &thermostatChain = integrator.getThermostat(chain);
+        auto KEs = computeMaskedKineticEnergy(context, thermostatChain, false);
+        auto scaleFactors = propagateChain(context, thermostatChain, KEs, dt);
+        scaleVelocities(context, thermostatChain, scaleFactors);
+    }
+    // Position update
+    kernel3->execute(numParticles);
+    integration.applyConstraints(integrator.getConstraintTolerance());
+    // Apply constraint forces
+    kernel4->execute(numAtoms);
+    // Make sure any Drude-like particles have not wandered too far from home
+    if (numPairs > 0) kernelHardWall->execute(numPairs);
+    integration.computeVirtualSites();
+
+    // Update the time and step count.
+    cc.setTime(cc.getTime()+dt);
+    cc.setStepCount(cc.getStepCount()+1);
+    cc.reorderAtoms();
+
+    // Reduce UI lag.
+#ifdef WIN32
+    cc.flushQueue();
+#endif
+}
+
+double CommonIntegrateNoseHooverStepKernel::computeKineticEnergy(ContextImpl& context, const NoseHooverIntegrator& integrator) {
+    return cc.getIntegrationUtilities().computeKineticEnergy(0);
+}
+
+
+std::pair<double, double> CommonIntegrateNoseHooverStepKernel::propagateChain(ContextImpl& context, const NoseHooverChain &nhc, std::pair<double, double> kineticEnergies, double timeStep) {
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    int chainID = nhc.getChainID();
+    int nAtoms = nhc.getThermostatedAtoms().size();
+    int nPairs = nhc.getThermostatedPairs().size();
+    int chainLength = nhc.getChainLength();
+    int numYS = nhc.getNumYoshidaSuzukiTimeSteps();
+    int numMTS = nhc.getNumMultiTimeSteps();
+
+    if (numYS != 1 && numYS != 3 && numYS != 5 && numYS != 7) {
+        throw OpenMMException("Number of Yoshida Suzuki time steps has to be 1, 3, 5, or 7.");
+    }
+
+    if (!scaleFactorBuffer.isInitialized() || scaleFactorBuffer.getSize() == 0) {
+        if (useDouble) {
+            std::vector<mm_double2> zeros{{0,0}};
+            if (scaleFactorBuffer.isInitialized())
+                scaleFactorBuffer.resize(1);
+            else
+                scaleFactorBuffer.initialize<mm_double2>(cc, 1, "scaleFactorBuffer");
+            scaleFactorBuffer.upload(zeros);
+        }
+        else {
+            std::vector<mm_float2> zeros{{0,0}};
+            if (scaleFactorBuffer.isInitialized())
+                scaleFactorBuffer.resize(1);
+            else
+                scaleFactorBuffer.initialize<mm_float2>(cc, 1, "scaleFactorBuffer");
+            scaleFactorBuffer.upload(zeros);
+        }
+    }
+    if (!chainForces.isInitialized() || !chainMasses.isInitialized()) {
+        if (useDouble) {
+            std::vector<double> zeros(chainLength,0);
+            if (chainForces.isInitialized()) {
+                chainMasses.resize(chainLength);
+                chainForces.resize(chainLength);
+            }
+            else {
+                chainMasses.initialize<double>(cc, chainLength, "chainMasses");
+                chainForces.initialize<double>(cc, chainLength, "chainForces");
+            }
+            chainMasses.upload(zeros);
+            chainForces.upload(zeros);
+        }
+        else {
+            std::vector<float> zeros(chainLength,0);
+            if (chainForces.isInitialized()) {
+                chainMasses.resize(chainLength);
+                chainForces.resize(chainLength);
+            }
+            else {
+                chainMasses.initialize<float>(cc, chainLength, "chainMasses");
+                chainForces.initialize<float>(cc, chainLength, "chainForces");
+            }
+            chainMasses.upload(zeros);
+            chainForces.upload(zeros);
+        }
+    }
+    if (chainForces.getSize() < chainLength)
+        chainForces.resize(chainLength);
+    if (chainMasses.getSize() < chainLength)
+        chainMasses.resize(chainLength);
+
+
+    // N.B. We ignore the incoming kineticEnergy and grab it from the device buffer instead
+    if (nAtoms) {
+        if (!chainState.count(2*chainID))
+            chainState[2*chainID] = ComputeArray();
+        if (!chainState.at(2*chainID).isInitialized() || chainState.at(2*chainID).getSize() != chainLength) {
+            // We need to upload the Common array
+            if (useDouble) {
+                if (chainState.at(2*chainID).isInitialized())
+                    chainState.at(2*chainID).resize(chainLength);
+                else
+                    chainState.at(2*chainID).initialize<mm_double2>(cc, chainLength, "chainState" + std::to_string(2*chainID));
+                std::vector<mm_double2> zeros(chainLength, mm_double2(0.0, 0.0));
+                chainState.at(2*chainID).upload(zeros.data());
+            }
+            else {
+                if (chainState.at(2*chainID).isInitialized())
+                    chainState.at(2*chainID).resize(chainLength);
+                else
+                    chainState.at(2*chainID).initialize<mm_float2>(cc, chainLength, "chainState" + std::to_string(2*chainID));
+                std::vector<mm_float2> zeros(chainLength, mm_float2(0.0f, 0.0f));
+                chainState.at(2*chainID).upload(zeros.data());
+            }
+        }
+    }
+
+    if (nPairs) {
+        if (!chainState.count(2*chainID+1))
+            chainState[2*chainID+1] = ComputeArray();
+        if (!chainState.at(2*chainID+1).isInitialized() || chainState.at(2*chainID+1).getSize() != chainLength) {
+            // We need to upload the Common array
+            if (useDouble) {
+                if (chainState.at(2*chainID+1).isInitialized())
+                    chainState.at(2*chainID+1).resize(chainLength);
+                else
+                    chainState.at(2*chainID+1).initialize<mm_double2>(cc, chainLength, "chainState" + std::to_string(2*chainID+1));
+                std::vector<mm_double2> zeros(chainLength, mm_double2(0.0, 0.0));
+                chainState.at(2*chainID+1).upload(zeros.data());
+            }
+            else {
+                if (chainState.at(2*chainID+1).isInitialized())
+                    chainState.at(2*chainID+1).resize(chainLength);
+                else
+                    chainState.at(2*chainID+1).initialize<mm_float2>(cc, chainLength, "chainState" + std::to_string(2*chainID+1));
+                std::vector<mm_float2> zeros(chainLength, mm_float2(0.0f, 0.0f));
+                chainState.at(2*chainID+1).upload(zeros.data());
+            }
+        }
+    }
+
+    if (!hasInitializedPropagateKernel) {
+        hasInitializedPropagateKernel = true;
+        propagateKernels[numYS]->addArg(); // ChainState
+        propagateKernels[numYS]->addArg(kineticEnergyBuffer);
+        propagateKernels[numYS]->addArg(scaleFactorBuffer);
+        propagateKernels[numYS]->addArg(chainMasses);
+        propagateKernels[numYS]->addArg(chainForces);
+        propagateKernels[numYS]->addArg(); // ChainType
+        propagateKernels[numYS]->addArg(chainLength);
+        propagateKernels[numYS]->addArg(numMTS);
+        propagateKernels[numYS]->addArg(); // numDoFs
+        propagateKernels[numYS]->addArg((float)timeStep);
+        propagateKernels[numYS]->addArg(); // kT
+        propagateKernels[numYS]->addArg(); // frequency
+    }
+
+    if (nAtoms) {
+        int chainType = 0;
+        double temperature = nhc.getTemperature();
+        float frequency = nhc.getCollisionFrequency();
+        double kT = BOLTZ * temperature;
+        int numDOFs = nhc.getNumDegreesOfFreedom();
+        propagateKernels[numYS]->setArg(0, chainState[2*chainID]);
+        propagateKernels[numYS]->setArg(5, chainType);
+        propagateKernels[numYS]->setArg(8, numDOFs);
+        if (useDouble) {
+            propagateKernels[numYS]->setArg(10, kT);
+        } else {
+            propagateKernels[numYS]->setArg(10, (float)kT);
+        }
+        propagateKernels[numYS]->setArg(11, frequency);
+        propagateKernels[numYS]->execute(1, 1);
+    }
+    if (nPairs) {
+        int chainType = 1;
+        double relativeTemperature = nhc.getRelativeTemperature();
+        float relativeFrequency = nhc.getRelativeCollisionFrequency();
+        double kT = BOLTZ * relativeTemperature;
+        int ndf = 3*nPairs;
+        propagateKernels[numYS]->setArg(0, chainState[2*chainID+1]);
+        propagateKernels[numYS]->setArg(5, chainType);
+        propagateKernels[numYS]->setArg(8, ndf);
+        if (useDouble) {
+            propagateKernels[numYS]->setArg(10, kT);
+        } else {
+            propagateKernels[numYS]->setArg(10, (float)kT);
+        }
+        propagateKernels[numYS]->setArg(11, relativeFrequency);
+        propagateKernels[numYS]->execute(1, 1);
+    }
+    return {0, 0};
+}
+
+double CommonIntegrateNoseHooverStepKernel::computeHeatBathEnergy(ContextImpl& context, const NoseHooverChain &nhc) {
+
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+
+    int chainID = nhc.getChainID();
+    int chainLength = nhc.getChainLength();
+
+    bool absChainIsValid = chainState.count(2*chainID) != 0 &&
+                           chainState[2*chainID].isInitialized() &&
+                           chainState[2*chainID].getSize() == chainLength;
+    bool relChainIsValid = chainState.count(2*chainID+1) != 0 &&
+                           chainState[2*chainID+1].isInitialized() &&
+                           chainState[2*chainID+1].getSize() == chainLength;
+
+    if (!absChainIsValid && !relChainIsValid) return 0.0;
+
+    if (!heatBathEnergy.isInitialized() || heatBathEnergy.getSize() == 0) {
+        if (useDouble) {
+            std::vector<double> one(1);
+            heatBathEnergy.initialize<double>(cc, 1, "heatBathEnergy");
+            heatBathEnergy.upload(one);
+        }
+        else {
+            std::vector<float> one(1);
+            heatBathEnergy.initialize<float>(cc, 1, "heatBathEnergy");
+            heatBathEnergy.upload(one);
+        }
+    }
+
+    cc.clearBuffer(heatBathEnergy);
+
+    if(!hasInitializedHeatBathEnergyKernel) {
+        hasInitializedHeatBathEnergyKernel = true;
+        computeHeatBathEnergyKernel->addArg(heatBathEnergy);
+        computeHeatBathEnergyKernel->addArg(chainLength);
+        computeHeatBathEnergyKernel->addArg(); // numDOFs
+        computeHeatBathEnergyKernel->addArg(); // kT
+        computeHeatBathEnergyKernel->addArg(); // frequency
+        computeHeatBathEnergyKernel->addArg(); // chainstate
+    }
+
+    if (absChainIsValid) {
+        int numDOFs = nhc.getNumDegreesOfFreedom();
+        double temperature = nhc.getTemperature();
+        float frequency = nhc.getCollisionFrequency();
+        double kT = BOLTZ * temperature;
+
+        computeHeatBathEnergyKernel->setArg(2, numDOFs);
+        if (useDouble) {
+            computeHeatBathEnergyKernel->setArg(3, kT);
+        } else {
+            computeHeatBathEnergyKernel->setArg(3, (float)kT);
+        }
+        computeHeatBathEnergyKernel->setArg(4, frequency);
+        computeHeatBathEnergyKernel->setArg(5, chainState[2*chainID]);
+        computeHeatBathEnergyKernel->execute(1, 1);
+    }
+    if (relChainIsValid) {
+        int numDOFs = 3 * nhc.getThermostatedPairs().size();
+        double temperature = nhc.getRelativeTemperature();
+        float frequency = nhc.getRelativeCollisionFrequency();
+        double kT = BOLTZ * temperature;
+
+        computeHeatBathEnergyKernel->setArg(2, numDOFs);
+        if (useDouble) {
+            computeHeatBathEnergyKernel->setArg(3, kT);
+        } else {
+            computeHeatBathEnergyKernel->setArg(3, (float)kT);
+        }
+        computeHeatBathEnergyKernel->setArg(4, frequency);
+        computeHeatBathEnergyKernel->setArg(5, chainState[2*chainID+1]);
+        computeHeatBathEnergyKernel->execute(1, 1);
+    }
+
+
+    void * pinnedBuffer = cc.getPinnedBuffer();
+    heatBathEnergy.download(pinnedBuffer);
+    if (useDouble)
+        return *((double*) pinnedBuffer);
+    else
+        return *((float*) pinnedBuffer);
+}
+
+std::pair<double, double> CommonIntegrateNoseHooverStepKernel::computeMaskedKineticEnergy(ContextImpl& context, const NoseHooverChain &nhc, bool downloadValue) {
+
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+
+    int chainID = nhc.getChainID();
+    const auto & nhcAtoms = nhc.getThermostatedAtoms();
+    const auto & nhcPairs = nhc.getThermostatedPairs();
+    int nAtoms = nhcAtoms.size();
+    int nPairs = nhcPairs.size();
+    if (nAtoms) {
+        if (!atomlists.count(chainID)) {
+            // We need to upload the Common array
+            atomlists[chainID] = ComputeArray();
+            atomlists[chainID].initialize<int>(cc, nAtoms, "atomlist" + std::to_string(chainID));
+            atomlists[chainID].upload(nhcAtoms);
+        }
+        if (atomlists[chainID].getSize() != nAtoms) {
+            throw OpenMMException("Number of atoms changed. Cannot be handled by the same Nose-Hoover thermostat.");
+        }
+    }
+    if (nPairs) {
+        if (!pairlists.count(chainID)) {
+            // We need to upload the Common array
+            pairlists[chainID] = ComputeArray();
+            pairlists[chainID].initialize<mm_int2>(cc, nPairs, "pairlist" + std::to_string(chainID));
+            std::vector<mm_int2> int2vec;
+            for(const auto &p : nhcPairs) int2vec.push_back(mm_int2(p.first, p.second));
+            pairlists[chainID].upload(int2vec);
+        }
+        if (pairlists[chainID].getSize() != nPairs) {
+            throw OpenMMException("Number of thermostated pairs changed. Cannot be handled by the same Nose-Hoover thermostat.");
+        }
+    }
+    if (!kineticEnergyBuffer.isInitialized() || kineticEnergyBuffer.getSize() == 0) {
+        if (useDouble) {
+            std::vector<mm_double2> zeros{{0,0}};
+            kineticEnergyBuffer.initialize<mm_double2>(cc, 1, "kineticEnergyBuffer");
+            kineticEnergyBuffer.upload(zeros);
+        }
+        else {
+            std::vector<mm_float2> zeros{{0,0}};
+            kineticEnergyBuffer.initialize<mm_float2>(cc, 1, "kineticEnergyBuffer");
+            kineticEnergyBuffer.upload(zeros);
+        }
+    }
+
+    int workGroupSize = std::min(cc.getMaxThreadBlockSize(), 512);
+    if (!hasInitializedKineticEnergyKernel) {
+        hasInitializedKineticEnergyKernel = true;
+        computeAtomsKineticEnergyKernel->addArg(energyBuffer);
+        computeAtomsKineticEnergyKernel->addArg(); // nAtoms
+        computeAtomsKineticEnergyKernel->addArg(cc.getVelm());
+        computeAtomsKineticEnergyKernel->addArg(); // atom list
+
+        computePairsKineticEnergyKernel->addArg(energyBuffer);
+        computePairsKineticEnergyKernel->addArg(); // nPairs
+        computePairsKineticEnergyKernel->addArg(cc.getVelm());
+        computePairsKineticEnergyKernel->addArg(); // pair list
+
+        reduceEnergyKernel->addArg(energyBuffer);
+        reduceEnergyKernel->addArg(kineticEnergyBuffer);
+        reduceEnergyKernel->addArg(energyBuffer.getSize());
+    }
+
+    cc.clearBuffer(energyBuffer);
+    if (nAtoms) {
+        computeAtomsKineticEnergyKernel->setArg(1, nAtoms);
+        computeAtomsKineticEnergyKernel->setArg(3, atomlists[chainID]);
+        computeAtomsKineticEnergyKernel->execute(nAtoms);
+    }
+    if (nPairs) {
+        computePairsKineticEnergyKernel->setArg(1, nPairs);
+        computePairsKineticEnergyKernel->setArg(3, pairlists[chainID]);
+        computePairsKineticEnergyKernel->execute(nPairs);
+    }
+    reduceEnergyKernel->execute(workGroupSize, workGroupSize);
+
+    std::pair<double, double> KEs = {0, 0};
+    if (downloadValue) {
+        if (useDouble) {
+            mm_double2 tmp;
+            kineticEnergyBuffer.download(&tmp);
+            KEs.first = tmp.x;
+            KEs.second = tmp.y;
+        }
+        else {
+            mm_float2 tmp;
+            kineticEnergyBuffer.download(&tmp);
+            KEs.first = tmp.x;
+            KEs.second = tmp.y;
+        }
+    }
+    return KEs;
+}
+
+void CommonIntegrateNoseHooverStepKernel::scaleVelocities(ContextImpl& context, const NoseHooverChain &nhc, std::pair<double, double> scaleFactor) {
+    // For now we assume that the atoms and pairs info is valid, because compute{Atoms|Pairs}KineticEnergy must have been
+    // called before this kernel.  If that ever ceases to be true, some sanity checks are needed here.
+
+    int chainID = nhc.getChainID();
+    int nAtoms = nhc.getThermostatedAtoms().size();
+    int nPairs = nhc.getThermostatedPairs().size();
+    if (!hasInitializedScaleVelocitiesKernel) {
+        hasInitializedScaleVelocitiesKernel = true;
+        scaleAtomsVelocitiesKernel->addArg(scaleFactorBuffer);
+        scaleAtomsVelocitiesKernel->addArg(); // nAtoms
+        scaleAtomsVelocitiesKernel->addArg(cc.getVelm());
+        scaleAtomsVelocitiesKernel->addArg(); // atom list
+
+        scalePairsVelocitiesKernel->addArg(scaleFactorBuffer);
+        scalePairsVelocitiesKernel->addArg(); // nPairs
+        scalePairsVelocitiesKernel->addArg(cc.getVelm());
+        scalePairsVelocitiesKernel->addArg(); // pair list
+    }
+    if (nAtoms) {
+        scaleAtomsVelocitiesKernel->setArg(1, nAtoms);
+        scaleAtomsVelocitiesKernel->setArg(3, atomlists[chainID]);
+        scaleAtomsVelocitiesKernel->execute(nAtoms);
+    }
+    if (nPairs) {
+        scalePairsVelocitiesKernel->setArg(1, nPairs);
+        scalePairsVelocitiesKernel->setArg(3, pairlists[chainID]);
+        scalePairsVelocitiesKernel->execute(nPairs);
+    }
+}
+
+void CommonIntegrateNoseHooverStepKernel::createCheckpoint(ContextImpl& context, ostream& stream) const {
+    int numChains = chainState.size();
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    stream.write((char*) &numChains, sizeof(int));
+    for (auto& state : chainState){
+        int chainID = state.first;
+        int chainLength = state.second.getSize();
+        stream.write((char*) &chainID, sizeof(int));
+        stream.write((char*) &chainLength, sizeof(int));
+        if (useDouble) {
+            vector<mm_double2> stateVec;
+            state.second.download(stateVec);
+            stream.write((char*) stateVec.data(), sizeof(mm_double2)*chainLength);
+        }
+        else {
+            vector<mm_float2> stateVec;
+            state.second.download(stateVec);
+            stream.write((char*) stateVec.data(), sizeof(mm_float2)*chainLength);
+        }
+    }
+}
+
+void CommonIntegrateNoseHooverStepKernel::loadCheckpoint(ContextImpl& context, istream& stream) {
+    int numChains;
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    stream.read((char*) &numChains, sizeof(int));
+    chainState.clear();
+    for (int i = 0; i < numChains; i++) {
+        int chainID, chainLength;
+        stream.read((char*) &chainID, sizeof(int));
+        stream.read((char*) &chainLength, sizeof(int));
+        if (useDouble) {
+            chainState[chainID] = ComputeArray();
+            chainState[chainID].initialize<mm_double2>(cc, chainLength, "chainState" + to_string(chainID));
+            vector<mm_double2> stateVec(chainLength);
+            stream.read((char*) &stateVec[0], sizeof(mm_double2)*chainLength);
+            chainState[chainID].upload(stateVec);
+        }
+        else {
+            chainState[chainID] = ComputeArray();
+            chainState[chainID].initialize<mm_float2>(cc, chainLength, "chainState" + to_string(chainID));
+            vector<mm_float2> stateVec(chainLength);
+            stream.read((char*) &stateVec[0], sizeof(mm_float2)*chainLength);
+            chainState[chainID].upload(stateVec);
+        }
+    }
+}
+
+void CommonIntegrateNoseHooverStepKernel::getChainStates(ContextImpl& context, vector<vector<double> >& positions, vector<vector<double> >& velocities) const {
+    int numChains = chainState.size();
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    positions.clear();
+    velocities.clear();
+    positions.resize(numChains);
+    velocities.resize(numChains);
+    for (int i = 0; i < numChains; i++) {
+        const ComputeArray& state = chainState.at(i);
+        if (useDouble) {
+            vector<mm_double2> stateVec;
+            state.download(stateVec);
+            for (int j = 0; j < stateVec.size(); j++) {
+                positions[i].push_back(stateVec[j].x);
+                velocities[i].push_back(stateVec[j].y);
+            }
+        }
+        else {
+            vector<mm_float2> stateVec;
+            state.download(stateVec);
+            for (int j = 0; j < stateVec.size(); j++) {
+                positions[i].push_back((float) stateVec[j].x);
+                velocities[i].push_back((float) stateVec[j].y);
+            }
+        }
+    }
+}
+
+void CommonIntegrateNoseHooverStepKernel::setChainStates(ContextImpl& context, const vector<vector<double> >& positions, const vector<vector<double> >& velocities) {
+    int numChains = positions.size();
+    bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
+    chainState.clear();
+    for (int i = 0; i < numChains; i++) {
+        int chainLength = positions[i].size();
+        chainState[i] = ComputeArray();
+        if (useDouble) {
+            chainState[i].initialize<mm_double2>(cc, chainLength, "chainState"+cc.intToString(i));
+            vector<mm_double2> stateVec;
+            for (int j = 0; j < chainLength; j++)
+                stateVec.push_back(mm_double2(positions[i][j], velocities[i][j]));
+            chainState[i].upload(stateVec);
+        }
+        else {
+            chainState[i].initialize<mm_float2>(cc, chainLength, "chainState"+cc.intToString(i));
+            vector<mm_float2> stateVec;
+            for (int j = 0; j < chainLength; j++)
+                stateVec.push_back(mm_float2((float) positions[i][j], (float) velocities[i][j]));
+            chainState[i].upload(stateVec);
+        }
+    }
 }
 
 void CommonIntegrateBrownianStepKernel::initialize(const System& system, const BrownianIntegrator& integrator) {
@@ -6765,7 +7272,7 @@ void CommonIntegrateCustomStepKernel::prepareForComputation(ContextImpl& context
 
         // Record the variable names and flags for the force and energy in each step.
 
-        forceGroupFlags.resize(numSteps, -1);
+        forceGroupFlags.resize(numSteps, integrator.getIntegrationForceGroups());
         vector<string> forceGroupName;
         vector<string> energyGroupName;
         for (int i = 0; i < 32; i++) {
@@ -6952,7 +7459,7 @@ void CommonIntegrateCustomStepKernel::prepareForComputation(ContextImpl& context
                 if (cc.getUseMixedPrecision())
                     kernel->addArg(cc.getPosqCorrection());
                 else
-                    kernel->addArg(NULL);
+                    kernel->addArg(nullptr);
                 kernel->addArg(integration.getPosDelta());
                 kernel->addArg(cc.getVelm());
                 kernel->addArg(cc.getLongForceBuffer());
@@ -6987,7 +7494,7 @@ void CommonIntegrateCustomStepKernel::prepareForComputation(ContextImpl& context
                 if (cc.getUseMixedPrecision())
                     kernel->addArg(cc.getPosqCorrection());
                 else
-                    kernel->addArg(NULL);
+                    kernel->addArg(nullptr);
                 kernel->addArg(integration.getPosDelta());
             }
         }
@@ -7043,7 +7550,7 @@ void CommonIntegrateCustomStepKernel::prepareForComputation(ContextImpl& context
         if (cc.getUseMixedPrecision())
             kineticEnergyKernel->addArg(cc.getPosqCorrection());
         else
-            kineticEnergyKernel->addArg(NULL);
+            kineticEnergyKernel->addArg(nullptr);
         kineticEnergyKernel->addArg(integration.getPosDelta());
         kineticEnergyKernel->addArg(cc.getVelm());
         kineticEnergyKernel->addArg(cc.getLongForceBuffer());
@@ -7445,7 +7952,7 @@ void CommonRemoveCMMotionKernel::initialize(const System& system, const CMMotion
     cc.setAsCurrent();
     frequency = force.getFrequency();
     int numAtoms = cc.getNumAtoms();
-    cmMomentum.initialize<mm_float3>(cc, cc.getPaddedNumAtoms(), "cmMomentum");
+    cmMomentum.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "cmMomentum");
     double totalMass = 0.0;
     for (int i = 0; i < numAtoms; i++)
         totalMass += system.getParticleMass(i);
@@ -7689,4 +8196,84 @@ void CommonApplyAndersenThermostatKernel::execute(ContextImpl& context) {
         kernel->setArg(4, (float) stepSize);
     kernel->setArg(6, cc.getIntegrationUtilities().prepareRandomNumbers(cc.getPaddedNumAtoms()));
     kernel->execute(cc.getNumAtoms());
+}
+
+void CommonApplyMonteCarloBarostatKernel::initialize(const System& system, const Force& thermostat) {
+    savedPositions.initialize(cc, cc.getPaddedNumAtoms(), cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4), "savedPositions");
+    savedLongForces.initialize<long long>(cc, cc.getPaddedNumAtoms()*3, "savedLongForces");
+    try {
+        cc.getFloatForceBuffer(); // This will throw an exception on the CUDA platform.
+        savedFloatForces.initialize(cc, cc.getPaddedNumAtoms(), cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4), "savedForces");
+    }
+    catch (...) {
+        // The CUDA platform doesn't have a floating point force buffer, so we don't need to copy it.
+    }
+    ComputeProgram program = cc.compileProgram(CommonKernelSources::monteCarloBarostat);
+    kernel = program->createKernel("scalePositions");
+}
+
+void CommonApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context, double scaleX, double scaleY, double scaleZ) {
+    if (!hasInitializedKernels) {
+        hasInitializedKernels = true;
+
+        // Create the arrays with the molecule definitions.
+
+        vector<vector<int> > molecules = context.getMolecules();
+        numMolecules = molecules.size();
+        moleculeAtoms.initialize<int>(cc, cc.getNumAtoms(), "moleculeAtoms");
+        moleculeStartIndex.initialize<int>(cc, numMolecules+1, "moleculeStartIndex");
+        vector<int> atoms(moleculeAtoms.getSize());
+        vector<int> startIndex(moleculeStartIndex.getSize());
+        int index = 0;
+        for (int i = 0; i < numMolecules; i++) {
+            startIndex[i] = index;
+            for (int molecule : molecules[i])
+                atoms[index++] = molecule;
+        }
+        startIndex[numMolecules] = index;
+        moleculeAtoms.upload(atoms);
+        moleculeStartIndex.upload(startIndex);
+
+        // Initialize the kernel arguments.
+
+//KERNEL void scalePositions(float scaleX, float scaleY, float scaleZ, int numMolecules, real4 periodicBoxSize,
+//        real4 invPeriodicBoxSize, real4 periodicBoxVecX, real4 periodicBoxVecY, real4 periodicBoxVecZ, GLOBAL real4* RESTRICT posq,
+//        GLOBAL const int* RESTRICT moleculeAtoms, GLOBAL const int* RESTRICT moleculeStartIndex) {
+        
+        kernel->addArg();
+        kernel->addArg();
+        kernel->addArg();
+        kernel->addArg(numMolecules);
+        for (int i = 0; i < 5; i++)
+            kernel->addArg();
+        kernel->addArg(cc.getPosq());
+        kernel->addArg(moleculeAtoms);
+        kernel->addArg(moleculeStartIndex);
+    }
+    cc.getPosq().copyTo(savedPositions);
+    cc.getLongForceBuffer().copyTo(savedLongForces);
+    if (savedFloatForces.isInitialized())
+        cc.getFloatForceBuffer().copyTo(savedFloatForces);
+//    int bytesToCopy = cc.getPosq().getSize()*(cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4));
+//    cc.getQueue().enqueueCopyBuffer(cc.getPosq().getDeviceBuffer(), savedPositions.getDeviceBuffer(), 0, 0, bytesToCopy);
+//    cc.getQueue().enqueueCopyBuffer(cc.getForce().getDeviceBuffer(), savedForces.getDeviceBuffer(), 0, 0, bytesToCopy);
+    kernel->setArg(0, (float) scaleX);
+    kernel->setArg(1, (float) scaleY);
+    kernel->setArg(2, (float) scaleZ);
+    setPeriodicBoxArgs(cc, kernel, 4);
+    kernel->execute(cc.getNumAtoms());
+    for (auto& offset : cc.getPosCellOffsets())
+        offset = mm_int4(0, 0, 0, 0);
+    lastAtomOrder = cc.getAtomIndex();
+}
+
+void CommonApplyMonteCarloBarostatKernel::restoreCoordinates(ContextImpl& context) {
+    savedPositions.copyTo(cc.getPosq());
+    savedLongForces.copyTo(cc.getLongForceBuffer());
+    if (savedFloatForces.isInitialized())
+        savedFloatForces.copyTo(cc.getFloatForceBuffer());
+
+//    int bytesToCopy = cc.getPosq().getSize()*(cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4));
+//    cc.getQueue().enqueueCopyBuffer(savedPositions.getDeviceBuffer(), cc.getPosq().getDeviceBuffer(), 0, 0, bytesToCopy);
+//    cc.getQueue().enqueueCopyBuffer(savedForces.getDeviceBuffer(), cc.getForce().getDeviceBuffer(), 0, 0, bytesToCopy);
 }

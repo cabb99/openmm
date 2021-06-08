@@ -29,8 +29,9 @@
 
 #include <map>
 #include <string>
-#define __CL_ENABLE_EXCEPTIONS
-#define CL_USE_DEPRECATED_OPENCL_1_1_APIS
+#define CL_HPP_ENABLE_EXCEPTIONS
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #ifndef CL_DEVICE_SIMD_PER_COMPUTE_UNIT_AMD
   #define CL_DEVICE_SIMD_PER_COMPUTE_UNIT_AMD 0x4040
 #endif
@@ -48,7 +49,7 @@
     #define NOMINMAX
 #endif
 #include <pthread.h>
-#include <cl.hpp>
+#include "opencl.hpp"
 #include "openmm/common/windowsExportCommon.h"
 #include "OpenCLArray.h"
 #include "OpenCLBondedUtilities.h"
@@ -255,6 +256,13 @@ public:
         return forceBuffers;
     }
     /**
+     * Get the array which contains a contribution to each force represented as a real4.
+     * This is a synonym for getForce().  It exists to satisfy the ComputeContext interface.
+     */
+    ArrayInterface& getFloatForceBuffer() {
+        return force;
+    }
+    /**
      * Get the array which contains a contribution to each force represented as 64 bit fixed point.
      */
     OpenCLArray& getLongForceBuffer() {
@@ -320,6 +328,13 @@ public:
      * @param blockSize    the size of each thread block to use
      */
     void executeKernel(cl::Kernel& kernel, int workUnits, int blockSize = -1);
+    /**
+     * Compute the largest thread block size that can be used for a kernel that requires a particular amount of
+     * shared memory per thread.
+     * 
+     * @param memory        the number of bytes of shared memory per thread
+     */
+    int computeThreadBlockSize(double memory) const;
     /**
      * Set all elements of an array to 0.
      */
@@ -595,6 +610,15 @@ public:
      */
     OpenCLNonbondedUtilities& getNonbondedUtilities() {
         return *nonbonded;
+    }
+    /**
+     * Create a new NonbondedUtilities for use with this context.  This should be called
+     * only in unusual situations, when a Force needs its own NonbondedUtilities object
+     * separate from the standard one.  The caller is responsible for deleting the object
+     * when it is no longer needed.
+     */
+    OpenCLNonbondedUtilities* createNonbondedUtilities() {
+        return new OpenCLNonbondedUtilities(*this);
     }
     /**
      * This should be called by the Integrator from its own initialize() method.

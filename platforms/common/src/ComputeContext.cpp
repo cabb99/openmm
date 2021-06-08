@@ -39,6 +39,9 @@
 using namespace OpenMM;
 using namespace std;
 
+const int ComputeContext::ThreadBlockSize = 64;
+const int ComputeContext::TileSize = 32;
+
 ComputeContext::ComputeContext(const System& system) : system(system), time(0.0), stepCount(0), computeForceCount(0), stepsSinceReorder(99999),
         atomsWereReordered(false), forcesValid(false), thread(NULL) {
     thread = new WorkThread();
@@ -621,14 +624,16 @@ void ComputeContext::addPostComputation(ForcePostComputation* computation) {
 }
 
 struct ComputeContext::WorkThread::ThreadData {
-    ThreadData(std::queue<ComputeContext::WorkTask*>& tasks, bool& waiting,  bool& finished,
+    ThreadData(std::queue<ComputeContext::WorkTask*>& tasks, bool& waiting,  bool& finished, bool& threwException, OpenMMException& stashedException,
             pthread_mutex_t& queueLock, pthread_cond_t& waitForTaskCondition, pthread_cond_t& queueEmptyCondition) :
-        tasks(tasks), waiting(waiting), finished(finished), queueLock(queueLock),
-        waitForTaskCondition(waitForTaskCondition), queueEmptyCondition(queueEmptyCondition) {
+        tasks(tasks), waiting(waiting), finished(finished), threwException(threwException), stashedException(stashedException),
+        queueLock(queueLock), waitForTaskCondition(waitForTaskCondition), queueEmptyCondition(queueEmptyCondition) {
     }
     std::queue<ComputeContext::WorkTask*>& tasks;
     bool& waiting;
     bool& finished;
+    bool& threwException;
+    OpenMMException& stashedException;
     pthread_mutex_t& queueLock;
     pthread_cond_t& waitForTaskCondition;
     pthread_cond_t& queueEmptyCondition;
@@ -643,6 +648,11 @@ static void* threadBody(void* args) {
             pthread_cond_signal(&data.queueEmptyCondition);
             pthread_cond_wait(&data.waitForTaskCondition, &data.queueLock);
         }
+        // If we keep going after having caught an exception once, next tasks will likely throw too and we don't want the initial exception overshadowed.
+        while (data.threwException && !data.tasks.empty()) {
+            delete data.tasks.front();
+            data.tasks.pop();
+        }
         ComputeContext::WorkTask* task = NULL;
         if (!data.tasks.empty()) {
             data.waiting = false;
@@ -651,7 +661,13 @@ static void* threadBody(void* args) {
         }
         pthread_mutex_unlock(&data.queueLock);
         if (task != NULL) {
-            task->execute();
+            try {
+                task->execute();
+            }
+            catch (const OpenMMException& e) {
+                data.threwException = true;
+                data.stashedException = e;
+            }
             delete task;
         }
     }
@@ -661,11 +677,11 @@ static void* threadBody(void* args) {
     return 0;
 }
 
-ComputeContext::WorkThread::WorkThread() : waiting(true), finished(false) {
+ComputeContext::WorkThread::WorkThread() : waiting(true), finished(false), threwException(false), stashedException("Default WorkThread exception. This should never be thrown.") {
     pthread_mutex_init(&queueLock, NULL);
     pthread_cond_init(&waitForTaskCondition, NULL);
     pthread_cond_init(&queueEmptyCondition, NULL);
-    ThreadData* data = new ThreadData(tasks, waiting, finished, queueLock, waitForTaskCondition, queueEmptyCondition);
+    ThreadData* data = new ThreadData(tasks, waiting, finished, threwException, stashedException, queueLock, waitForTaskCondition, queueEmptyCondition);
     pthread_create(&thread, NULL, threadBody, data);
 }
 
@@ -701,4 +717,8 @@ void ComputeContext::WorkThread::flush() {
     while (!waiting)
        pthread_cond_wait(&queueEmptyCondition, &queueLock);
     pthread_mutex_unlock(&queueLock);
+    if (threwException) {
+        threwException = false;
+        throw stashedException;
+    }
 }

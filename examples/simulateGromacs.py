@@ -1,12 +1,12 @@
-from simtk.openmm.app import *
-from simtk.openmm import *
-from simtk.unit import *
+from openmm.app import *
+from openmm import *
+from openmm.unit import *
 from sys import stdout
 
 gro = GromacsGroFile('input.gro')
 top = GromacsTopFile('input.top', periodicBoxVectors=gro.getPeriodicBoxVectors())
 system = top.createSystem(nonbondedMethod=PME, nonbondedCutoff=1*nanometer, constraints=HBonds)
-integrator = BAOABLangevinIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
+integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 0.004*picoseconds)
 simulation = Simulation(top.topology, system, integrator)
 simulation.context.setPositions(gro.positions)
 simulation.minimizeEnergy()

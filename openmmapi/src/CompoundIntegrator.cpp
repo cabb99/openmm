@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2015-2016 Stanford University and the Authors.      *
+ * Portions copyright (c) 2015-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -127,4 +127,35 @@ void CompoundIntegrator::stateChanged(State::DataType changed) {
 
 double CompoundIntegrator::computeKineticEnergy() {
     return integrators[currentIntegrator]->computeKineticEnergy();
+}
+
+void CompoundIntegrator::createCheckpoint(std::ostream& stream) const {
+    stream.write((char*) &currentIntegrator, sizeof(int));
+    for (int i = 0; i < integrators.size(); i++)
+        integrators[i]->createCheckpoint(stream);
+}
+
+void CompoundIntegrator::loadCheckpoint(std::istream& stream) {
+    stream.read((char*) &currentIntegrator, sizeof(int));
+    for (int i = 0; i < integrators.size(); i++)
+        integrators[i]->loadCheckpoint(stream);
+}
+
+void CompoundIntegrator::serializeParameters(SerializationNode& node) const {
+    node.setIntProperty("version", 1);
+    node.setIntProperty("currentIntegrator", currentIntegrator);
+    for (int i = 0; i < getNumIntegrators(); i++) {
+        SerializationNode& child = node.createChildNode("IntegratorParameters");
+        integrators[i]->serializeParameters(child);
+    }
+}
+
+void CompoundIntegrator::deserializeParameters(const SerializationNode& node) {
+    if (node.getIntProperty("version") != 1)
+        throw OpenMMException("Unsupported version number");
+    if (node.getChildren().size() != getNumIntegrators())
+        throw OpenMMException("State has wrong number of integrators for CompoundIntegrator");
+    setCurrentIntegrator(node.getIntProperty("currentIntegrator"));
+    for (int i = 0; i < node.getChildren().size(); i++)
+        integrators[i]->deserializeParameters(node.getChildren()[i]);
 }

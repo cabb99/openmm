@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2013-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2013-2020 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -121,12 +121,12 @@ void CommonCalcDrudeForceKernel::initialize(const System& system, const DrudeFor
             double k1 = ONE_4PI_EPS0*charge*charge/(polarizability*a1) - k3;
             double k2 = ONE_4PI_EPS0*charge*charge/(polarizability*a2) - k3;
             if (atoms[i][2] == -1) {
-                atoms[i][2] = 0;
+                atoms[i][2] = atoms[i][0];
                 k1 = 0;
             }
             if (atoms[i][3] == -1 || atoms[i][4] == -1) {
-                atoms[i][3] = 0;
-                atoms[i][4] = 0;
+                atoms[i][3] = atoms[i][0];
+                atoms[i][4] = atoms[i][0];
                 k2 = 0;
             }
             paramVector[i] = mm_float4((float) k1, (float) k2, (float) k3, 0.0f);
@@ -282,7 +282,7 @@ void CommonIntegrateDrudeLangevinStepKernel::execute(ContextImpl& context, const
         if (cc.getUseMixedPrecision())
             kernel2->addArg(cc.getPosqCorrection());
         else
-            kernel2->addArg(NULL);
+            kernel2->addArg(nullptr);
         kernel2->addArg(integration.getPosDelta());
         kernel2->addArg(cc.getVelm());
         kernel2->addArg(integration.getStepSize());
@@ -290,7 +290,7 @@ void CommonIntegrateDrudeLangevinStepKernel::execute(ContextImpl& context, const
         if (cc.getUseMixedPrecision())
             hardwallKernel->addArg(cc.getPosqCorrection());
         else
-            hardwallKernel->addArg(NULL);
+            hardwallKernel->addArg(nullptr);
         hardwallKernel->addArg(cc.getVelm());
         hardwallKernel->addArg(pairParticles);
         hardwallKernel->addArg(integration.getStepSize());
@@ -516,7 +516,7 @@ static lbfgsfloatval_t evaluate(void *instance, const lbfgsfloatval_t *x, lbfgsf
 
     // Compute the forces and energy for this configuration.
 
-    double energy = context.calcForcesAndEnergy(true, true);
+    double energy = context.calcForcesAndEnergy(true, true, context.getIntegrator().getIntegrationForceGroups());
     long long* force = (long long*) cc.getPinnedBuffer();
     cc.getLongForceBuffer().download(force);
     double forceScale = -1.0/0x100000000;
