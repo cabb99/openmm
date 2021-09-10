@@ -46,6 +46,7 @@ import openmm.unit as unit
 from . import element as elem
 from openmm.app.internal.singleton import Singleton
 from openmm.app.internal import compiled
+from openmm.app.internal.argtracker import ArgTracker
 
 # Directories from which to load built in force fields.
 
@@ -208,6 +209,7 @@ class ForceField(object):
         self._atomClasses = {'':set()}
         self._forces = []
         self._scripts = []
+        self._templateMatchers = []
         self._templateGenerators = []
         self.loadFile(files)
 
@@ -329,7 +331,7 @@ class ForceField(object):
                             self.registerTemplatePatch(resName, patchName, 0)
                     self.registerResidueTemplate(template)
 
-        # Load the patch defintions.
+        # Load the patch definitions.
 
         for tree in trees:
             if tree.getroot().find('Patches') is not None:
@@ -410,6 +412,12 @@ class ForceField(object):
             for node in tree.getroot().findall('Script'):
                 self.registerScript(node.text)
 
+        # Execute initialization scripts.
+
+        for tree in trees:
+            for node in tree.getroot().findall('InitializationScript'):
+                exec(node.text, locals())
+
     def getGenerators(self):
         """Get the list of all registered generators."""
         return self._forces
@@ -478,6 +486,21 @@ class ForceField(object):
     def registerScript(self, script):
         """Register a new script to be executed after building the System."""
         self._scripts.append(script)
+    
+    def registerTemplateMatcher(self, matcher):
+        """Register an object that can override the default logic for matching templates to residues.
+
+        A template matcher is a callable object that can be invoked as::
+        
+            template = f(forcefield, residue)
+        
+        where ``forcefield`` is the ForceField invoking it and ``residue`` is a openmm.app.Residue object.
+        It should return a _TemplateData object that matches the residue.  Alternatively it may return
+        None, in which case the standard logic will be used to find a template for the residue.
+
+        .. CAUTION:: This method is experimental, and its API is subject to change.        
+        """
+        self._templateMatchers.append(matcher)
 
     def registerTemplateGenerator(self, generator):
         """Register a residue template generator that can be used to parameterize residues that do not match existing forcefield templates.
@@ -957,6 +980,13 @@ class ForceField(object):
         """
         template = None
         matches = None
+        for matcher in self._templateMatchers:
+            template = matcher(self, res)
+            if template is not None:
+                match = compiled.matchResidueToTemplate(res, template, bondedToAtom, ignoreExternalBonds, ignoreExtraParticles)
+                if match is None:
+                    raise ValueError('A custom template matcher returned a template for residue %s, but it does not match the residue.' % res.name)
+                return [template, match]
         if templateSignatures is None:
             templateSignatures = self._templateSignatures
         signature = _createResidueSignature([atom.element for atom in res.atoms()])
@@ -1169,6 +1199,7 @@ class ForceField(object):
         args['switchDistance'] = switchDistance
         args['flexibleConstraints'] = flexibleConstraints
         args['drudeMass'] = drudeMass
+        args = ArgTracker(args)
         data = ForceField._SystemData(topology)
         rigidResidue = [False]*topology.getNumResidues()
 
@@ -1339,6 +1370,7 @@ class ForceField(object):
 
         for script in self._scripts:
             exec(script, locals())
+        args.checkArgs(self.createSystem)
         return sys
 
 
@@ -3162,214 +3194,6 @@ class CustomHbondGenerator(object):
 
 parsers["CustomHbondForce"] = CustomHbondGenerator.parseElement
 
-## @private
-class CustomResiduePairGenerator(object):
-    """A CustomResiduePairGenerator constructs a CustomResiduePairForce."""
-
-    def __init__(self, forcefield):
-        self.ff = forcefield
-        self.donorTypes1 = []
-        self.donorTypes2 = []
-        self.donorTypes3 = []
-        self.donorTypes4 = []
-        self.acceptorTypes1 = []
-        self.acceptorTypes2 = []
-        self.acceptorTypes3 = []
-        self.acceptorTypes4 = []
-        self.globalParams = {}
-        self.perDonorParams = []
-        self.perAcceptorParams = []
-        self.donorParamValues = []
-        self.acceptorParamValues = []
-        self.functions = []
-
-    @staticmethod
-    def parseElement(element, ff):
-        generator = CustomResiduePairGenerator(ff)
-        ff.registerGenerator(generator)
-        generator.energy = element.attrib['energy']
-        generator.bondCutoff = int(element.attrib['bondCutoff'])
-        generator.particlesPerDonor = int(element.attrib['particlesPerDonor'])
-        generator.particlesPerAcceptor = int(element.attrib['particlesPerAcceptor'])
-        if generator.particlesPerDonor < 1 or generator.particlesPerDonor > 4:
-            raise ValueError('Illegal value for particlesPerDonor for CustomResiduePairForce')
-        if generator.particlesPerAcceptor < 1 or generator.particlesPerAcceptor > 4:
-            raise ValueError('Illegal value for particlesPerAcceptor for CustomResiduePairForce')
-        for param in element.findall('GlobalParameter'):
-            generator.globalParams[param.attrib['name']] = float(param.attrib['defaultValue'])
-        for param in element.findall('PerDonorParameter'):
-            generator.perDonorParams.append(param.attrib['name'])
-        for param in element.findall('PerAcceptorParameter'):
-            generator.perAcceptorParams.append(param.attrib['name'])
-        for donor in element.findall('Donor'):
-            types = ff._findAtomTypes(donor.attrib, 4)[:generator.particlesPerDonor]
-            if None not in types:
-                generator.donorTypes1.append(types[0])
-                if len(types) > 1:
-                    generator.donorTypes2.append(types[1])
-                if len(types) > 2:
-                    generator.donorTypes3.append(types[2])
-                if len(types) > 3:
-                    generator.donorTypes4.append(types[3])
-                generator.donorParamValues.append([float(donor.attrib[param]) for param in generator.perDonorParams])
-        for acceptor in element.findall('Acceptor'):
-            types = ff._findAtomTypes(acceptor.attrib, 4)[:generator.particlesPerAcceptor]
-            if None not in types:
-                generator.acceptorTypes1.append(types[0])
-                if len(types) > 1:
-                    generator.acceptorTypes2.append(types[1])
-                if len(types) > 2:
-                    generator.acceptorTypes3.append(types[2])
-                if len(types) > 3:
-                    generator.acceptorTypes4.append(types[3])
-                generator.acceptorParamValues.append([float(acceptor.attrib[param]) for param in generator.perAcceptorParams])
-        generator.functions += _parseFunctions(element)
-
-    def connectivity_parser(self,data):
-        """ Returns a generator that can obtain patterns of atoms_types connected by bonds"""
-        #Make a dictionary of atomType -> atoms
-        atoms_from_type = {}
-        for atom in data.atoms:
-            atom_type = data.atomType[atom]
-            if atom_type not in atoms_from_type:
-                atoms_from_type.update({atom_type: [atom.index]})
-            else:
-                atoms_from_type[atom_type] += [atom.index]
-
-        connectivity={atom.index:{atom_type:[] for atom_type in atoms_from_type.keys()} for atom in data.atoms}
-
-        #Make a dictionary mapping the connection of every atom to other atoms from any atomtype
-        for bond in data.bonds:
-            atom_type1 = data.atomType[data.atoms[bond.atom1]]
-            atom_type2 = data.atomType[data.atoms[bond.atom2]]
-            connectivity[bond.atom1][atom_type2]+=[bond.atom2]
-            connectivity[bond.atom2][atom_type1]+=[bond.atom1]
-
-        #Remove duplicated connections
-        for atom in connectivity:
-            for atom_type in connectivity[atom]:
-                connectivity[atom][atom_type]=list(set(connectivity[atom][atom_type]))
-                connectivity[atom][atom_type].sort()
-
-        #Create generator
-        def next_atoms(atomtypes, previous_atoms=[]):
-            if len(atomtypes)==0:
-                yield []
-
-            elif len(previous_atoms)==0:
-                #First atom in the list
-                for atom_type in atomtypes[0]:
-                    try:
-                        for atom in atoms_from_type[atom_type]:
-                            for next_atom in next_atoms(atomtypes[1:], previous_atoms=[atom]):
-                                yield [atom] + next_atom
-                    except KeyError:
-                        continue
-            else:
-                for atom_type in atomtypes[0]:
-                    try:
-                        for previous_atom in previous_atoms:
-                            for atom in connectivity[previous_atom][atom_type]:
-                                for next_atom in next_atoms(atomtypes[1:], previous_atoms=previous_atoms+[atom]):
-                                    yield [atom] + next_atom
-                    except KeyError:
-                        continue
-        return next_atoms
-
-    def createForce(self, sys, data, nonbondedMethod, nonbondedCutoff, args):
-        methodMap = {NoCutoff:mm.CustomResiduePairForce.NoCutoff,
-                     CutoffNonPeriodic:mm.CustomResiduePairForce.CutoffNonPeriodic,
-                     CutoffPeriodic:mm.CustomResiduePairForce.CutoffPeriodic,
-                     Ewald:mm.CustomResiduePairForce.CutoffPeriodic,
-                     PME:mm.CustomResiduePairForce.CutoffPeriodic,
-                     LJPME:mm.CustomResiduePairForce.CutoffPeriodic}
-        if nonbondedMethod not in methodMap:
-            raise ValueError('Illegal nonbonded method for CustomNonbondedForce')
-        force = mm.CustomResiduePairForce(self.energy)
-        sys.addForce(force)
-        for param in self.globalParams:
-            force.addGlobalParameter(param, self.globalParams[param])
-        for param in self.perDonorParams:
-            force.addPerDonorParameter(param)
-        for param in self.perAcceptorParams:
-            force.addPerAcceptorParameter(param)
-        _createFunctions(force, self.functions)
-        force.setNonbondedMethod(methodMap[nonbondedMethod])
-        force.setCutoffDistance(nonbondedCutoff)
-
-        # Parse conections from bonds
-        group_generator=self.connectivity_parser(data)
-
-        # Add donors
-        if self.particlesPerDonor == 1:
-            for i in range(len(self.donorTypes1)):
-                possible_donors = group_generator([self.donorTypes1[i]])
-                for donor in possible_donors:
-                    force.addDonor(donor[0], -1, -1, -1, self.donorParamValues[i])
-        elif self.particlesPerDonor == 2:
-            for i in range(len(self.donorTypes1)):
-                possible_donors = group_generator([self.donorTypes1[i],self.donorTypes2[i]])
-                for donor in possible_donors:
-                    force.addDonor(donor[0], donor[1], -1, -1, self.donorParamValues[i])
-        elif self.particlesPerDonor == 3:
-            for i in range(len(self.donorTypes1)):
-                possible_donors = group_generator([self.donorTypes1[i],self.donorTypes2[i],self.donorTypes3[i]])
-                for donor in possible_donors:
-                    force.addDonor(donor[0], donor[1], donor[2], -1, self.donorParamValues[i])
-        elif self.particlesPerDonor == 4:
-            for i in range(len(self.donorTypes1)):
-                possible_donors =group_generator([self.donorTypes1[i],self.donorTypes2[i],self.donorTypes3[i],self.donorTypes4[i]])
-                for donor in possible_donors:
-                    force.addDonor(donor[0], donor[1], donor[2], donor[3], self.donorParamValues[i])
-        # Add acceptors.
-
-        if self.particlesPerAcceptor == 1:
-            for i in range(len(self.acceptorTypes1)):
-                possible_acceptors = group_generator([self.acceptorTypes1[i]])
-                for acceptor in possible_acceptors:
-                    force.addAcceptor(acceptor[0], -1, -1, -1, self.acceptorParamValues[i])
-        elif self.particlesPerAcceptor == 2:
-            for i in range(len(self.acceptorTypes1)):
-                possible_acceptors = group_generator([self.acceptorTypes1[i], self.acceptorTypes2[i]])
-                for acceptor in possible_acceptors:
-                    force.addAcceptor(acceptor[0], acceptor[1], -1, -1, self.acceptorParamValues[i])
-        elif self.particlesPerAcceptor == 3:
-            for i in range(len(self.acceptorTypes1)):
-                possible_acceptors = group_generator(
-                    [self.acceptorTypes1[i], self.acceptorTypes2[i], self.acceptorTypes3[i]])
-                for acceptor in possible_acceptors:
-                    force.addAcceptor(acceptor[0], acceptor[1], acceptor[2], -1, self.acceptorParamValues[i])
-        elif self.particlesPerAcceptor == 4:
-            for i in range(len(self.acceptorTypes1)):
-                possible_acceptors = group_generator(
-                    [self.acceptorTypes1[i], self.acceptorTypes2[i], self.acceptorTypes3[i], self.acceptorTypes4[i]])
-                for acceptor in possible_acceptors:
-                    force.addAcceptor(acceptor[0], acceptor[1], acceptor[2], acceptor[3], self.acceptorParamValues[i])
-
-        # Add exclusions.
-
-        for donor in range(force.getNumDonors()):
-            (d1, d2, d3, d4, params) = force.getDonorParameters(donor)
-            outerAtoms = set((d1, d2, d3, d4))
-            if -1 in outerAtoms:
-                outerAtoms.remove(-1)
-            excludedAtoms = set(outerAtoms)
-            for i in range(self.bondCutoff):
-                newOuterAtoms = set()
-                for atom in outerAtoms:
-                    for bond in data.atomBonds[atom]:
-                        b = data.bonds[bond]
-                        bondedAtom = (b.atom2 if b.atom1 == atom else b.atom1)
-                        if bondedAtom not in excludedAtoms:
-                            newOuterAtoms.add(bondedAtom)
-                            excludedAtoms.add(bondedAtom)
-                outerAtoms = newOuterAtoms
-            for acceptor in range(force.getNumAcceptors()):
-                (a1, a2, a3, a4, params) = force.getAcceptorParameters(acceptor)
-                if a1 in excludedAtoms or a2 in excludedAtoms or a3 in excludedAtoms or a4 in excludedAtoms:
-                    force.addExclusion(donor, acceptor)
-
-parsers["CustomResiduePairForce"] = CustomResiduePairGenerator.parseElement
 
 ## @private
 class CustomManyParticleGenerator(object):

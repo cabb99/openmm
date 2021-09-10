@@ -6,7 +6,7 @@ Simbios, the NIH National Center for Physics-Based Simulation of
 Biological Structures at Stanford, funded under the NIH Roadmap for
 Medical Research, grant U54 GM072970. See https://simtk.org.
 
-Portions copyright (c) 2012-2020 Stanford University and the Authors.
+Portions copyright (c) 2012-2021 Stanford University and the Authors.
 Authors: Peter Eastman
 Contributors:
 
@@ -520,7 +520,7 @@ class Modeller(object):
         if len(self.positions) == 0:
             positions = []
         else:
-            positions = self.positions.value_in_unit(nanometer)[:]
+            positions = deepcopy(self.positions.value_in_unit(nanometer))
         cells = _CellList(positions, maxCutoff, vectors, True)
 
         # Create a function to compute the distance between two points, taking periodic boundary conditions into account.
@@ -569,6 +569,7 @@ class Modeller(object):
             # Compute a new periodic box size.
 
             maxSize = max(max((pos[i] for index, pos in addedWaters))-min((pos[i] for index, pos in addedWaters)) for i in range(3))
+            maxSize += 0.1  # Add padding to reduce clashes at the edge.
             newTopology.setUnitCellDimensions(Vec3(maxSize, maxSize, maxSize))
         else:
             # There could be clashes between water molecules at the box edges.  Find ones to remove.
@@ -1201,8 +1202,8 @@ class Modeller(object):
         It begins by tiling copies of a pre-equilibrated membrane patch to create a membrane of the desired
         size.  Next it scales down the protein by 50% along the X and Y axes.  Any lipid within a cutoff
         distance of the scaled protein is removed.  It also ensures that equal numbers of lipids are removed
-        from each leaf of the membrane.  Finally, 1000 steps of molecular dynamics are performed to let
-        the membrane relax while the protein is gradually scaled back up to its original size.
+        from each leaf of the membrane.  Finally, it runs molecular dynamics to let the membrane relax while
+        gradually scaling the protein back up to its original size.
 
         The size of the membrane and water box are determined by the minimumPadding argument.  All
         pre-existing atoms are guaranteed to be at least this far from any edge of the periodic box.  It
@@ -1425,7 +1426,10 @@ class Modeller(object):
         gc.collect()
 
         # Run a simulation while slowly scaling up the protein so the membrane can relax.
+        # Select the number of steps to ensure no atom will ever move more than 0.25 A
+        # in one step.
 
+        steps = int(max(proteinSize.x, proteinSize.y)*10) + 1
         integrator = LangevinIntegrator(10.0, 50.0, 0.001)
         context = Context(system, integrator)
         context.setPositions(mergedPositions)
@@ -1437,8 +1441,8 @@ class Modeller(object):
             scaledProteinPosArray = np.array(scaledProteinPos)
         except:
             hasNumpy = False
-        for i in range(50):
-            weight1 = i/49.0
+        for i in range(steps):
+            weight1 = i/(steps-1)
             weight2 = 1.0-weight1
             mergedPositions = context.getState(getPositions=True).getPositions(asNumpy=hasNumpy).value_in_unit(nanometer)
             if hasNumpy:
@@ -1536,7 +1540,7 @@ class _CellList(object):
     """This class organizes atom positions into cells, so the neighbors of a point can be quickly retrieved"""
 
     def __init__(self, positions, maxCutoff, vectors, periodic):
-        self.positions = positions[:]
+        self.positions = deepcopy(positions)
         self.cells = {}
         self.numCells = tuple((max(1, int(floor(vectors[i][i]/maxCutoff))) for i in range(3)))
         self.cellSize = tuple((vectors[i][i]/self.numCells[i] for i in range(3)))

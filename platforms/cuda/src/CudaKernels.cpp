@@ -6,7 +6,7 @@
  * Biological Structures at Stanford, funded under the NIH Roadmap for        *
  * Medical Research, grant U54 GM072970. See https://simtk.org.               *
  *                                                                            *
- * Portions copyright (c) 2008-2019 Stanford University and the Authors.      *
+ * Portions copyright (c) 2008-2021 Stanford University and the Authors.      *
  * Authors: Peter Eastman                                                     *
  * Contributors:                                                              *
  *                                                                            *
@@ -725,7 +725,7 @@ void CudaCalcNonbondedForceKernel::initialize(const System& system, const Nonbon
             }
             char deviceName[100];
             cuDeviceGetName(deviceName, 100, cu.getDevice());
-            usePmeStream = (!cu.getPlatformData().disablePmeStream && string(deviceName) != "GeForce GTX 980"); // Using a separate stream is slower on GTX 980
+            usePmeStream = (!cu.getPlatformData().disablePmeStream && !cu.getPlatformData().useCpuPme && string(deviceName) != "GeForce GTX 980"); // Using a separate stream is slower on GTX 980
             map<string, string> pmeDefines;
             pmeDefines["PME_ORDER"] = cu.intToString(PmeOrder);
             pmeDefines["NUM_ATOMS"] = cu.intToString(numParticles);
@@ -979,7 +979,8 @@ void CudaCalcNonbondedForceKernel::initialize(const System& system, const Nonbon
             replacements["USE_PERIODIC"] = force.getExceptionsUsePeriodicBoundaryConditions() ? "1" : "0";
             if (doLJPME)
                 replacements["EWALD_DISPERSION_ALPHA"] = cu.doubleToString(dispersionAlpha);
-            cu.getBondedUtilities().addInteraction(atoms, cu.replaceStrings(CommonKernelSources::pmeExclusions, replacements), force.getForceGroup());
+            if (force.getIncludeDirectSpace())
+                cu.getBondedUtilities().addInteraction(atoms, cu.replaceStrings(CommonKernelSources::pmeExclusions, replacements), force.getForceGroup());
         }
     }
 
@@ -1008,7 +1009,8 @@ void CudaCalcNonbondedForceKernel::initialize(const System& system, const Nonbon
         cu.getNonbondedUtilities().addParameter(CudaNonbondedUtilities::ParameterInfo(prefix+"sigmaEpsilon", "float", 2, sizeof(float2), sigmaEpsilon.getDevicePointer()));
     }
     source = cu.replaceStrings(source, replacements);
-    cu.getNonbondedUtilities().addInteraction(useCutoff, usePeriodic, true, force.getCutoffDistance(), exclusionList, source, force.getForceGroup(), true);
+    if (force.getIncludeDirectSpace())
+        cu.getNonbondedUtilities().addInteraction(useCutoff, usePeriodic, true, force.getCutoffDistance(), exclusionList, source, force.getForceGroup(), true);
 
     // Initialize the exceptions.
 
@@ -1033,7 +1035,8 @@ void CudaCalcNonbondedForceKernel::initialize(const System& system, const Nonbon
         map<string, string> replacements;
         replacements["APPLY_PERIODIC"] = (usePeriodic && force.getExceptionsUsePeriodicBoundaryConditions() ? "1" : "0");
         replacements["PARAMS"] = cu.getBondedUtilities().addArgument(exceptionParams.getDevicePointer(), "float4");
-        cu.getBondedUtilities().addInteraction(atoms, cu.replaceStrings(CommonKernelSources::nonbondedExceptions, replacements), force.getForceGroup());
+        if (force.getIncludeDirectSpace())
+            cu.getBondedUtilities().addInteraction(atoms, cu.replaceStrings(CommonKernelSources::nonbondedExceptions, replacements), force.getForceGroup());
     }
     
     // Initialize parameter offsets.

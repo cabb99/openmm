@@ -282,6 +282,18 @@ class TestForceField(unittest.TestCase):
             else:
                 self.assertEqual(trueMass[i], adjustedMass[i])
 
+    def test_UnusedArgs(self):
+        """Test that specifying an argument that is never used throws an exception."""
+        topology = self.pdb1.topology
+        # Using the default value should not raise an exception.
+        self.forcefield1.createSystem(topology, drudeMass=0.4*amu)
+        # Specifying a non-default value should.
+        with self.assertRaises(ValueError):
+            self.forcefield1.createSystem(topology, drudeMass=0.5*amu)
+        # Specifying a nonexistant argument should raise an exception.
+        with self.assertRaises(ValueError):
+            self.forcefield1.createSystem(topology, nonbndedCutoff=1.0*nanometer)
+
     def test_Forces(self):
         """Compute forces and compare them to ones generated with a previous version of OpenMM to ensure they haven't changed."""
 
@@ -299,6 +311,27 @@ class TestForceField(unittest.TestCase):
             if diff > 0.1 and diff/norm(f1) > 1e-3:
                 numDifferences += 1
         self.assertTrue(numDifferences < system.getNumParticles()/20) # Tolerate occasional differences from numerical error
+
+    def test_ImplicitSolventForces(self):
+        """Compute forces for different implicit solvent types, and compare them to ones generated with AmberPrmtopFile."""
+
+        solventType = ['hct', 'obc1', 'obc2', 'gbn', 'gbn2']
+        nonbondedMethod = [NoCutoff, CutoffNonPeriodic, CutoffNonPeriodic, NoCutoff, NoCutoff]
+        kappa = [0.0, 0.0, 1.698295227342757, 1.698295227342757, 0.0]
+        file = [None, 'OBC1_NonPeriodic', 'OBC2_NonPeriodic_Salt', None, 'GBn2_NoCutoff']
+        for i in range(len(file)):
+            forcefield = ForceField('amber96.xml', f'implicit/{solventType[i]}.xml')
+            system = forcefield.createSystem(self.pdb2.topology, nonbondedMethod=nonbondedMethod[i], implicitSolventKappa=kappa[i])
+            integrator = VerletIntegrator(0.001)
+            context = Context(system, integrator, Platform.getPlatformByName("Reference"))
+            context.setPositions(self.pdb2.positions)
+            state1 = context.getState(getForces=True)
+            if file[i] is not None:
+                with open('systems/alanine-dipeptide-implicit-forces/'+file[i]+'.xml') as infile:
+                    state2 = XmlSerializer.deserialize(infile.read())
+                for f1, f2, in zip(state1.getForces().value_in_unit(kilojoules_per_mole/nanometer), state2.getForces().value_in_unit(kilojoules_per_mole/nanometer)):
+                    diff = norm(f1-f2)
+                    self.assertTrue(diff < 0.1 or diff/norm(f1) < 1e-4)
 
     def test_ProgrammaticForceField(self):
         """Test building a ForceField programmatically."""
@@ -390,6 +423,64 @@ class TestForceField(unittest.TestCase):
                 self.assertEqual(params[0], 0.417*elementary_charge)
                 self.assertEqual(params[1], 1.0*nanometers)
                 self.assertEqual(params[2], 0.0*kilojoule_per_mole)
+
+    def test_residueMatcher(self):
+        """Test using a custom template matcher to select templates."""
+        xml = """
+<ForceField>
+ <AtomTypes>
+  <Type name="tip3p-O" class="OW" element="O" mass="15.99943"/>
+  <Type name="tip3p-H" class="HW" element="H" mass="1.007947"/>
+ </AtomTypes>
+ <Residues>
+  <Residue name="HOH">
+   <Atom name="O" type="tip3p-O" charge="-0.834"/>
+   <Atom name="H1" type="tip3p-H" charge="0.417"/>
+   <Atom name="H2" type="tip3p-H" charge="0.417"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <Bond from="1" to="2"/>
+  </Residue>
+  <Residue name="HOH2">
+   <Atom name="O" type="tip3p-O" charge="0.834"/>
+   <Atom name="H1" type="tip3p-H" charge="-0.417"/>
+   <Atom name="H2" type="tip3p-H" charge="-0.417"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <Bond from="1" to="2"/>
+  </Residue>
+ </Residues>
+ <NonbondedForce coulomb14scale="0.833333" lj14scale="0.5">
+  <UseAttributeFromResidue name="charge"/>
+  <Atom type="tip3p-O" sigma="0.315" epsilon="0.635"/>
+  <Atom type="tip3p-H" sigma="1" epsilon="0"/>
+ </NonbondedForce>
+</ForceField>"""
+        ff = ForceField(StringIO(xml))
+
+        # Load a water box.
+        prmtop = AmberPrmtopFile('systems/water-box-216.prmtop')
+        top = prmtop.topology
+        
+        # Building a System should fail, because two templates match each residue.
+        self.assertRaises(Exception, lambda: ff.createSystem(top))
+        
+        # Register a template matcher that selects a particular one.
+        def matcher(ff, res):
+            return ff._templates['HOH2']
+        ff.registerTemplateMatcher(matcher)
+        
+        # It should now succeed in building a System.
+        system = ff.createSystem(top)
+        
+        # Make sure it used the correct parameters.
+        nb = [f for f in system.getForces() if isinstance(f, NonbondedForce)][0]
+        for atom in top.atoms():
+            charge, sigma, epsilon = nb.getParticleParameters(atom.index)
+            if atom.name == 'O':
+                self.assertEqual(0.834*elementary_charge, charge)
+            else:
+                self.assertEqual(-0.417*elementary_charge, charge)
 
     def test_residueTemplateGenerator(self):
         """Test the ability to add residue template generators to parameterize unmatched residues."""
@@ -1090,6 +1181,19 @@ END"""))
         self.assertAlmostEqual(40.21459, angles, delta=angles*1e-3) # ANGLes
         self.assertAlmostEqual(26.10373, propers, delta=propers*1e-3) # DIHEdrals
         self.assertAlmostEqual(0.14113, impropers, delta=impropers*1e-3) # IMPRopers
+
+    def test_InitializationScript(self):
+        """Test that <InitializationScript> tags get executed."""
+        xml = """
+<ForceField>
+  <InitializationScript>
+self.scriptExecuted = True
+  </InitializationScript>
+</ForceField>
+"""
+        ff = ForceField(StringIO(xml))
+        self.assertTrue(ff.scriptExecuted)
+        
 
 class AmoebaTestForceField(unittest.TestCase):
     """Test the ForceField.createSystem() method with the AMOEBA forcefield."""

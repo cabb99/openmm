@@ -49,8 +49,8 @@ namespace OpenMM {
  * up to three particles.  Typically a donor group consists of a hydrogen atom and the atoms it is bonded to,
  * and an acceptor group consists of a negatively charged atom and the atoms it is bonded to.
  *
- * We refer to the particles in a donor group as d1, d2 and d3, and the particles in an acceptor group as
- * a1, a2, and a3.  For each donor and each acceptor, CustomResiduePairForce evaluates a user supplied algebraic
+ * We refer to the particles in a donor group as d1, d2, d3, and d4, and the particles in an acceptor group as
+ * a1, a2, a3, and a4.  For each donor and each acceptor, CustomResiduePairForce evaluates a user supplied algebraic
  * expression to determine the interaction energy.  The expression may depend on arbitrary distances, angles,
  * and dihedral angles defined by any of the six particles involved.  The function distance(p1, p2) is the distance
  * between the particles p1 and p2 (where "p1" and "p2" should be replaced by the names of the actual particles
@@ -78,15 +78,23 @@ namespace OpenMM {
  * As an example, the following code creates a CustomResiduePairForce that implements a simple harmonic potential
  * to keep the distance between a1 and d1, and the angle formed by a1-d1-d2, near ideal values:
  *
- * <tt>CustomResiduePairForce* force = new CustomResiduePairForce("k*(distance(a1,d1)-r0)^2*(angle(a1,d1,d2)-theta0)^2");</tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    CustomResiduePairForce* force = new CustomResiduePairForce("k*(distance(a1,d1)-r0)^2*(angle(a1,d1,d2)-theta0)^2");
+ *
+ * \endverbatim
  *
  * This force depends on three parameters: k, r0, and theta0.  The following code defines these as per-donor parameters:
  *
- * <tt><pre>
- * force->addPerDonorParameter("k");
- * force->addPerDonorParameter("r0");
- * force->addPerDonorParameter("theta0");
- * </pre></tt>
+ * \verbatim embed:rst:leading-asterisk
+ * .. code-block:: cpp
+ *
+ *    force->addPerDonorParameter("k");
+ *    force->addPerDonorParameter("r0");
+ *    force->addPerDonorParameter("theta0");
+ *
+ * \endverbatim
  *
  * Expressions may involve the operators + (add), - (subtract), * (multiply), / (divide), and ^ (power), and the following
  * functions: sqrt, exp, log, sin, cos, sec, csc, tan, cot, asin, acos, atan, atan2, sinh, cosh, tanh, erf, erfc, min, max, abs, floor, ceil, step, delta, select.  All trigonometric functions
