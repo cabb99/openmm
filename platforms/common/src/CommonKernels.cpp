@@ -4295,7 +4295,7 @@ private:
 };
 
 CommonCalcCustomResiduePairForceKernel::~CommonCalcCustomResiduePairForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (donorParams != NULL)
         delete donorParams;
     if (acceptorParams != NULL)
@@ -4314,7 +4314,7 @@ static void applyDonorAndAcceptorForces4(stringstream& applyToDonor, stringstrea
 void CommonCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
     // Record the lists of donors and acceptors, and the parameters for each one.
 
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumDonors()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumDonors()/numContexts;
@@ -4754,7 +4754,7 @@ double CommonCalcCustomResiduePairForceKernel::execute(ContextImpl& context, boo
 }
 
 void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumDonors()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumDonors()/numContexts;
@@ -4762,9 +4762,9 @@ void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl
         throw OpenMMException("updateParametersInContext: The number of donors has changed");
     if (numAcceptors != force.getNumAcceptors())
         throw OpenMMException("updateParametersInContext: The number of acceptors has changed");
-    
+
     // Record the per-donor parameters.
-    
+
     if (numDonors > 0) {
         vector<vector<float> > donorParamVector(numDonors);
         vector<double> parameters;
@@ -4777,9 +4777,9 @@ void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl
         }
         donorParams->setParameterValues(donorParamVector);
     }
-    
+
     // Record the per-acceptor parameters.
-    
+
     if (numAcceptors > 0) {
         vector<vector<float> > acceptorParamVector(numAcceptors);
         vector<double> parameters;
@@ -4792,9 +4792,9 @@ void CommonCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl
         }
         acceptorParams->setParameterValues(acceptorParamVector);
     }
-    
+
     // Mark that the current reordering may be invalid.
-    
+
     cc.invalidateMolecules(info);
 }
 
