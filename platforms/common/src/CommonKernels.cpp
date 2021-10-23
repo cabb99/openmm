@@ -25,6 +25,7 @@
  * -------------------------------------------------------------------------- */
 
 #include "openmm/common/CommonKernels.h"
+#include "openmm/common/ContextSelector.h"
 #include "openmm/common/ExpressionUtilities.h"
 #include "openmm/Context.h"
 #include "openmm/internal/AndersenThermostatImpl.h"
@@ -35,7 +36,6 @@
 #include "openmm/internal/CustomHbondForceImpl.h"
 #include "openmm/internal/CustomResiduePairForceImpl.h"
 #include "openmm/internal/CustomManyParticleForceImpl.h"
-#include "openmm/internal/CustomNonbondedForceImpl.h"
 #include "CommonKernelSources.h"
 #include "lepton/CustomFunction.h"
 #include "lepton/ExpressionTreeNode.h"
@@ -112,7 +112,7 @@ void CommonApplyConstraintsKernel::initialize(const System& system) {
 }
 
 void CommonApplyConstraintsKernel::apply(ContextImpl& context, double tol) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (!hasInitializedKernel) {
         hasInitializedKernel = true;
         map<string, string> defines;
@@ -169,7 +169,7 @@ private:
 };
 
 void CommonCalcHarmonicBondForceKernel::initialize(const System& system, const HarmonicBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -199,7 +199,7 @@ double CommonCalcHarmonicBondForceKernel::execute(ContextImpl& context, bool inc
 }
 
 void CommonCalcHarmonicBondForceKernel::copyParametersToContext(ContextImpl& context, const HarmonicBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -253,13 +253,13 @@ private:
 };
 
 CommonCalcCustomBondForceKernel::~CommonCalcCustomBondForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomBondForceKernel::initialize(const System& system, const CustomBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -334,6 +334,7 @@ void CommonCalcCustomBondForceKernel::initialize(const System& system, const Cus
 }
 
 double CommonCalcCustomBondForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -349,7 +350,7 @@ double CommonCalcCustomBondForceKernel::execute(ContextImpl& context, bool inclu
 }
 
 void CommonCalcCustomBondForceKernel::copyParametersToContext(ContextImpl& context, const CustomBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -404,7 +405,7 @@ private:
 };
 
 void CommonCalcHarmonicAngleForceKernel::initialize(const System& system, const HarmonicAngleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumAngles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumAngles()/numContexts;
@@ -435,7 +436,7 @@ double CommonCalcHarmonicAngleForceKernel::execute(ContextImpl& context, bool in
 }
 
 void CommonCalcHarmonicAngleForceKernel::copyParametersToContext(ContextImpl& context, const HarmonicAngleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumAngles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumAngles()/numContexts;
@@ -491,13 +492,13 @@ private:
 };
 
 CommonCalcCustomAngleForceKernel::~CommonCalcCustomAngleForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomAngleForceKernel::initialize(const System& system, const CustomAngleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumAngles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumAngles()/numContexts;
@@ -572,6 +573,7 @@ void CommonCalcCustomAngleForceKernel::initialize(const System& system, const Cu
 }
 
 double CommonCalcCustomAngleForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -587,7 +589,7 @@ double CommonCalcCustomAngleForceKernel::execute(ContextImpl& context, bool incl
 }
 
 void CommonCalcCustomAngleForceKernel::copyParametersToContext(ContextImpl& context, const CustomAngleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumAngles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumAngles()/numContexts;
@@ -643,7 +645,7 @@ private:
 };
 
 void CommonCalcPeriodicTorsionForceKernel::initialize(const System& system, const PeriodicTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -674,7 +676,7 @@ double CommonCalcPeriodicTorsionForceKernel::execute(ContextImpl& context, bool 
 }
 
 void CommonCalcPeriodicTorsionForceKernel::copyParametersToContext(ContextImpl& context, const PeriodicTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -728,7 +730,7 @@ private:
 };
 
 void CommonCalcRBTorsionForceKernel::initialize(const System& system, const RBTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -764,7 +766,7 @@ double CommonCalcRBTorsionForceKernel::execute(ContextImpl& context, bool includ
 }
 
 void CommonCalcRBTorsionForceKernel::copyParametersToContext(ContextImpl& context, const RBTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -829,7 +831,7 @@ CommonCalcCustomTorsionForceKernel::~CommonCalcCustomTorsionForceKernel() {
 }
 
 void CommonCalcCustomTorsionForceKernel::initialize(const System& system, const CustomTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -904,6 +906,7 @@ void CommonCalcCustomTorsionForceKernel::initialize(const System& system, const 
 }
 
 double CommonCalcCustomTorsionForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -919,7 +922,7 @@ double CommonCalcCustomTorsionForceKernel::execute(ContextImpl& context, bool in
 }
 
 void CommonCalcCustomTorsionForceKernel::copyParametersToContext(ContextImpl& context, const CustomTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -977,7 +980,7 @@ private:
 };
 
 void CommonCalcCMAPTorsionForceKernel::initialize(const System& system, const CMAPTorsionForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumTorsions()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumTorsions()/numContexts;
@@ -1040,6 +1043,7 @@ void CommonCalcCMAPTorsionForceKernel::copyParametersToContext(ContextImpl& cont
 
     // Update the maps.
 
+    ContextSelector selector(cc);
     vector<mm_float4> coeffVec;
     vector<double> energy;
     vector<vector<double> > c;
@@ -1102,13 +1106,13 @@ private:
 };
 
 CommonCalcCustomExternalForceKernel::~CommonCalcCustomExternalForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomExternalForceKernel::initialize(const System& system, const CustomExternalForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumParticles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumParticles()/numContexts;
@@ -1184,6 +1188,7 @@ void CommonCalcCustomExternalForceKernel::initialize(const System& system, const
 }
 
 double CommonCalcCustomExternalForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -1199,7 +1204,7 @@ double CommonCalcCustomExternalForceKernel::execute(ContextImpl& context, bool i
 }
 
 void CommonCalcCustomExternalForceKernel::copyParametersToContext(ContextImpl& context, const CustomExternalForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumParticles()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumParticles()/numContexts;
@@ -1252,13 +1257,13 @@ private:
 };
 
 CommonCalcCustomCompoundBondForceKernel::~CommonCalcCustomCompoundBondForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomCompoundBondForceKernel::initialize(const System& system, const CustomCompoundBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -1369,6 +1374,7 @@ void CommonCalcCustomCompoundBondForceKernel::initialize(const System& system, c
 }
 
 double CommonCalcCustomCompoundBondForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -1384,7 +1390,7 @@ double CommonCalcCustomCompoundBondForceKernel::execute(ContextImpl& context, bo
 }
 
 void CommonCalcCustomCompoundBondForceKernel::copyParametersToContext(ContextImpl& context, const CustomCompoundBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumBonds()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumBonds()/numContexts;
@@ -1455,13 +1461,13 @@ private:
 };
 
 CommonCalcCustomCentroidBondForceKernel::~CommonCalcCustomCentroidBondForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomCentroidBondForceKernel::initialize(const System& system, const CustomCentroidBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     numBonds = force.getNumBonds();
     if (numBonds == 0)
         return;
@@ -1680,6 +1686,7 @@ void CommonCalcCustomCentroidBondForceKernel::initialize(const System& system, c
 double CommonCalcCustomCentroidBondForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
     if (numBonds == 0)
         return 0.0;
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -1703,7 +1710,7 @@ double CommonCalcCustomCentroidBondForceKernel::execute(ContextImpl& context, bo
 }
 
 void CommonCalcCustomCentroidBondForceKernel::copyParametersToContext(ContextImpl& context, const CustomCentroidBondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (numBonds != force.getNumBonds())
         throw OpenMMException("updateParametersInContext: The number of bonds has changed");
     if (numBonds == 0)
@@ -1772,8 +1779,51 @@ private:
     vector<set<int> > groupsForParticle;
 };
 
+class CommonCalcCustomNonbondedForceKernel::LongRangePostComputation : public ComputeContext::ForcePostComputation {
+public:
+    LongRangePostComputation(ComputeContext& cc, double& longRangeCoefficient, vector<double>& longRangeCoefficientDerivs, CustomNonbondedForce* force) :
+            cc(cc), longRangeCoefficient(longRangeCoefficient), longRangeCoefficientDerivs(longRangeCoefficientDerivs), force(force) {
+    }
+    double computeForceAndEnergy(bool includeForces, bool includeEnergy, int groups) {
+        if ((groups&(1<<force->getForceGroup())) == 0)
+            return 0;
+        cc.getWorkThread().flush();
+        Vec3 a, b, c;
+        cc.getPeriodicBoxVectors(a, b, c);
+        double volume = a[0]*b[1]*c[2];
+        map<string, double>& derivs = cc.getEnergyParamDerivWorkspace();
+        for (int i = 0; i < longRangeCoefficientDerivs.size(); i++)
+            derivs[force->getEnergyParameterDerivativeName(i)] += longRangeCoefficientDerivs[i]/volume;
+        return longRangeCoefficient/volume;
+    }
+private:
+    ComputeContext& cc;
+    double& longRangeCoefficient;
+    vector<double>& longRangeCoefficientDerivs;
+    CustomNonbondedForce* force;
+};
+
+class CommonCalcCustomNonbondedForceKernel::LongRangeTask : public ComputeContext::WorkTask {
+public:
+    LongRangeTask(ComputeContext& cc, Context& context, CustomNonbondedForceImpl::LongRangeCorrectionData& data,
+                  double& longRangeCoefficient, vector<double>& longRangeCoefficientDerivs, CustomNonbondedForce* force) :
+                        cc(cc), context(context), data(data), longRangeCoefficient(longRangeCoefficient),
+                        longRangeCoefficientDerivs(longRangeCoefficientDerivs), force(force) {
+    }
+    void execute() {
+        CustomNonbondedForceImpl::calcLongRangeCorrection(*force, data, context, longRangeCoefficient, longRangeCoefficientDerivs, cc.getThreadPool());
+    }
+private:
+    ComputeContext& cc;
+    Context& context;
+    CustomNonbondedForceImpl::LongRangeCorrectionData& data;
+    double& longRangeCoefficient;
+    vector<double>& longRangeCoefficientDerivs;
+    CustomNonbondedForce* force;
+};
+
 CommonCalcCustomNonbondedForceKernel::~CommonCalcCustomNonbondedForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
     if (forceCopy != NULL)
@@ -1781,7 +1831,7 @@ CommonCalcCustomNonbondedForceKernel::~CommonCalcCustomNonbondedForceKernel() {
 }
 
 void CommonCalcCustomNonbondedForceKernel::initialize(const System& system, const CustomNonbondedForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int forceIndex;
     for (forceIndex = 0; forceIndex < system.getNumForces() && &system.getForce(forceIndex) != &force; ++forceIndex)
         ;
@@ -1913,6 +1963,8 @@ void CommonCalcCustomNonbondedForceKernel::initialize(const System& system, cons
     
     if (force.getNonbondedMethod() == CustomNonbondedForce::CutoffPeriodic && force.getUseLongRangeCorrection() && cc.getContextIndex() == 0) {
         forceCopy = new CustomNonbondedForce(force);
+        longRangeCorrectionData = CustomNonbondedForceImpl::prepareLongRangeCorrection(force);
+        cc.addPostComputation(new LongRangePostComputation(cc, longRangeCoefficient, longRangeCoefficientDerivs, forceCopy));
         hasInitializedLongRangeCorrection = false;
     }
     else {
@@ -2200,6 +2252,8 @@ double CommonCalcCustomNonbondedForceKernel::execute(ContextImpl& context, bool 
         // When using a neighbor list, run the whole calculation on a single device.
         return 0.0;
     }
+    ContextSelector selector(cc);
+    bool recomputeLongRangeCorrection = !hasInitializedLongRangeCorrection;
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -2210,15 +2264,17 @@ double CommonCalcCustomNonbondedForceKernel::execute(ContextImpl& context, bool 
         }
         if (changed) {
             globals.upload(globalParamValues);
-            if (forceCopy != NULL) {
-                CustomNonbondedForceImpl::calcLongRangeCorrection(*forceCopy, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs);
-                hasInitializedLongRangeCorrection = true;
-            }
+            if (forceCopy != NULL)
+                recomputeLongRangeCorrection = true;
         }
     }
-    if (!hasInitializedLongRangeCorrection) {
-        CustomNonbondedForceImpl::calcLongRangeCorrection(*forceCopy, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs);
-        hasInitializedLongRangeCorrection = true;
+    if (recomputeLongRangeCorrection) {
+        if (includeEnergy || forceCopy->getNumEnergyParameterDerivatives() > 0) {
+            cc.getWorkThread().addTask(new LongRangeTask(cc, context.getOwner(), longRangeCorrectionData, longRangeCoefficient, longRangeCoefficientDerivs, forceCopy));
+            hasInitializedLongRangeCorrection = true;
+        }
+        else
+            hasInitializedLongRangeCorrection = false;
     }
     if (interactionGroupData.isInitialized()) {
         if (!hasInitializedKernel) {
@@ -2265,17 +2321,11 @@ double CommonCalcCustomNonbondedForceKernel::execute(ContextImpl& context, bool 
         setPeriodicBoxArgs(cc, interactionGroupKernel, 6);
         interactionGroupKernel->execute(numGroupThreadBlocks*forceThreadBlockSize, forceThreadBlockSize);
     }
-    Vec3 a, b, c;
-    cc.getPeriodicBoxVectors(a, b, c);
-    double volume = a[0]*b[1]*c[2];
-    map<string, double>& derivs = cc.getEnergyParamDerivWorkspace();
-    for (int i = 0; i < longRangeCoefficientDerivs.size(); i++)
-        derivs[forceCopy->getEnergyParameterDerivativeName(i)] += longRangeCoefficientDerivs[i]/volume;
-    return longRangeCoefficient/volume;
+    return 0;
 }
 
 void CommonCalcCustomNonbondedForceKernel::copyParametersToContext(ContextImpl& context, const CustomNonbondedForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numParticles = force.getNumParticles();
     if (numParticles != cc.getNumAtoms())
         throw OpenMMException("updateParametersInContext: The number of particles has changed");
@@ -2297,8 +2347,9 @@ void CommonCalcCustomNonbondedForceKernel::copyParametersToContext(ContextImpl& 
     // If necessary, recompute the long range correction.
     
     if (forceCopy != NULL) {
-        CustomNonbondedForceImpl::calcLongRangeCorrection(force, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs);
-        hasInitializedLongRangeCorrection = true;
+        longRangeCorrectionData = CustomNonbondedForceImpl::prepareLongRangeCorrection(force);
+        CustomNonbondedForceImpl::calcLongRangeCorrection(force, longRangeCorrectionData, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs, cc.getThreadPool());
+        hasInitializedLongRangeCorrection = false;
         *forceCopy = force;
     }
     
@@ -2322,7 +2373,7 @@ private:
 };
 
 void CommonCalcGBSAOBCForceKernel::initialize(const System& system, const GBSAOBCForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (cc.getNumContexts() > 1)
         throw OpenMMException("GBSAOBCForce does not support using multiple devices");
     int forceIndex;
@@ -2381,6 +2432,7 @@ void CommonCalcGBSAOBCForceKernel::initialize(const System& system, const GBSAOB
 }
 
 double CommonCalcGBSAOBCForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     NonbondedUtilities& nb = cc.getNonbondedUtilities();
     bool deviceIsCpu = cc.getIsCPU();
     if (!hasCreatedKernels) {
@@ -2497,7 +2549,7 @@ double CommonCalcGBSAOBCForceKernel::execute(ContextImpl& context, bool includeF
 void CommonCalcGBSAOBCForceKernel::copyParametersToContext(ContextImpl& context, const GBSAOBCForce& force) {
     // Make sure the new parameters are acceptable.
     
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numParticles = force.getNumParticles();
     if (numParticles != cc.getNumAtoms())
         throw OpenMMException("updateParametersInContext: The number of particles has changed");
@@ -2556,7 +2608,7 @@ private:
 };
 
 CommonCalcCustomGBForceKernel::~CommonCalcCustomGBForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
     if (computedValues != NULL)
@@ -2570,7 +2622,7 @@ CommonCalcCustomGBForceKernel::~CommonCalcCustomGBForceKernel() {
 }
 
 void CommonCalcCustomGBForceKernel::initialize(const System& system, const CustomGBForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (cc.getNumContexts() > 1)
         throw OpenMMException("CustomGBForce does not support using multiple devices");
     NonbondedUtilities& nb = cc.getNonbondedUtilities();
@@ -3389,6 +3441,7 @@ void CommonCalcCustomGBForceKernel::initialize(const System& system, const Custo
 }
 
 double CommonCalcCustomGBForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     bool deviceIsCpu = cc.getIsCPU();
     NonbondedUtilities& nb = cc.getNonbondedUtilities();
     int elementSize = (cc.getUseDoublePrecision() ? sizeof(double) : sizeof(float));
@@ -3597,7 +3650,7 @@ double CommonCalcCustomGBForceKernel::execute(ContextImpl& context, bool include
 }
 
 void CommonCalcCustomGBForceKernel::copyParametersToContext(ContextImpl& context, const CustomGBForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numParticles = force.getNumParticles();
     if (numParticles != cc.getNumAtoms())
         throw OpenMMException("updateParametersInContext: The number of particles has changed");
@@ -3695,7 +3748,7 @@ private:
 };
 
 CommonCalcCustomHbondForceKernel::~CommonCalcCustomHbondForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (donorParams != NULL)
         delete donorParams;
     if (acceptorParams != NULL)
@@ -3719,7 +3772,7 @@ static void applyDonorAndAcceptorForces(stringstream& applyToDonor, stringstream
 void CommonCalcCustomHbondForceKernel::initialize(const System& system, const CustomHbondForce& force) {
     // Record the lists of donors and acceptors, and the parameters for each one.
 
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumDonors()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumDonors()/numContexts;
@@ -4047,6 +4100,7 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
 double CommonCalcCustomHbondForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
     if (numDonors == 0 || numAcceptors == 0)
         return 0.0;
+    ContextSelector selector(cc);
     if (globals.isInitialized()) {
         bool changed = false;
         for (int i = 0; i < (int) globalParamNames.size(); i++) {
@@ -4111,7 +4165,7 @@ double CommonCalcCustomHbondForceKernel::execute(ContextImpl& context, bool incl
 }
 
 void CommonCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl& context, const CustomHbondForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numContexts = cc.getNumContexts();
     int startIndex = cc.getContextIndex()*force.getNumDonors()/numContexts;
     int endIndex = (cc.getContextIndex()+1)*force.getNumDonors()/numContexts;
@@ -4778,13 +4832,13 @@ private:
 };
 
 CommonCalcCustomManyParticleForceKernel::~CommonCalcCustomManyParticleForceKernel() {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (params != NULL)
         delete params;
 }
 
 void CommonCalcCustomManyParticleForceKernel::initialize(const System& system, const CustomManyParticleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     if (!cc.getSupports64BitGlobalAtomics())
         throw OpenMMException("CustomManyParticleForce requires a device that supports 64 bit atomic operations");
     int numParticles = force.getNumParticles();
@@ -5100,6 +5154,7 @@ void CommonCalcCustomManyParticleForceKernel::initialize(const System& system, c
 }
 
 double CommonCalcCustomManyParticleForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (!hasInitializedKernel) {
         hasInitializedKernel = true;
         
@@ -5226,7 +5281,7 @@ double CommonCalcCustomManyParticleForceKernel::execute(ContextImpl& context, bo
 }
 
 void CommonCalcCustomManyParticleForceKernel::copyParametersToContext(ContextImpl& context, const CustomManyParticleForce& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     int numParticles = force.getNumParticles();
     if (numParticles != cc.getNumAtoms())
         throw OpenMMException("updateParametersInContext: The number of particles has changed");
@@ -5318,6 +5373,7 @@ void CommonCalcGayBerneForceKernel::initialize(const System& system, const GayBe
 
     // Initialize interactions.
 
+    ContextSelector selector(cc);
     int numParticles = force.getNumParticles();
     sigParams.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "sigParams");
     epsParams.initialize<mm_float2>(cc, cc.getPaddedNumAtoms(), "epsParams");
@@ -5429,6 +5485,7 @@ void CommonCalcGayBerneForceKernel::initialize(const System& system, const GayBe
 }
 
 double CommonCalcGayBerneForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (!hasInitializedKernels) {
         hasInitializedKernels = true;
         sortAtoms();
@@ -5545,6 +5602,7 @@ void CommonCalcGayBerneForceKernel::copyParametersToContext(ContextImpl& context
     
     // Record the per-particle parameters.
     
+    ContextSelector selector(cc);
     vector<mm_float4> sigParamsVector(cc.getPaddedNumAtoms(), mm_float4(0, 0, 0, 0));
     vector<mm_float2> epsParamsVector(cc.getPaddedNumAtoms(), mm_float2(0, 0));
     vector<mm_float4> scaleVector(cc.getPaddedNumAtoms(), mm_float4(0, 0, 0, 0));
@@ -5663,6 +5721,7 @@ private:
 };
 
 void CommonCalcCustomCVForceKernel::initialize(const System& system, const CustomCVForce& force, ContextImpl& innerContext) {
+    ContextSelector selector(cc);
     int numCVs = force.getNumCollectiveVariables();
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         globalParameterNames.push_back(force.getGlobalParameterName(i));
@@ -5755,6 +5814,7 @@ void CommonCalcCustomCVForceKernel::initialize(const System& system, const Custo
 }
 
 double CommonCalcCustomCVForceKernel::execute(ContextImpl& context, ContextImpl& innerContext, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     copyState(context, innerContext);
     int numCVs = variableNames.size();
     int numAtoms = cc.getNumAtoms();
@@ -5800,6 +5860,7 @@ double CommonCalcCustomCVForceKernel::execute(ContextImpl& context, ContextImpl&
 }
 
 void CommonCalcCustomCVForceKernel::copyState(ContextImpl& context, ContextImpl& innerContext) {
+    ContextSelector selector(cc);
     int numAtoms = cc.getNumAtoms();
     ComputeContext& cc2 = getInnerComputeContext(innerContext);
     if (!hasInitializedListeners) {
@@ -5847,14 +5908,14 @@ void CommonCalcCustomCVForceKernel::copyParametersToContext(ContextImpl& context
 
 void CommonIntegrateVerletStepKernel::initialize(const System& system, const VerletIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     ComputeProgram program = cc.compileProgram(CommonKernelSources::verlet);
     kernel1 = program->createKernel("integrateVerletPart1");
     kernel2 = program->createKernel("integrateVerletPart2");
 }
 
 void CommonIntegrateVerletStepKernel::execute(ContextImpl& context, const VerletIntegrator& integrator) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -5912,7 +5973,7 @@ double CommonIntegrateVerletStepKernel::computeKineticEnergy(ContextImpl& contex
 
 void CommonIntegrateLangevinStepKernel::initialize(const System& system, const LangevinIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
     ComputeProgram program = cc.compileProgram(CommonKernelSources::langevin);
     kernel1 = program->createKernel("integrateLangevinPart1");
@@ -5922,7 +5983,7 @@ void CommonIntegrateLangevinStepKernel::initialize(const System& system, const L
 }
 
 void CommonIntegrateLangevinStepKernel::execute(ContextImpl& context, const LangevinIntegrator& integrator) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -5999,7 +6060,7 @@ double CommonIntegrateLangevinStepKernel::computeKineticEnergy(ContextImpl& cont
 
 void CommonIntegrateLangevinMiddleStepKernel::initialize(const System& system, const LangevinMiddleIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
     ComputeProgram program = cc.compileProgram(CommonKernelSources::langevinMiddle);
     kernel1 = program->createKernel("integrateLangevinMiddlePart1");
@@ -6017,6 +6078,7 @@ void CommonIntegrateLangevinMiddleStepKernel::initialize(const System& system, c
 }
 
 void CommonIntegrateLangevinMiddleStepKernel::execute(ContextImpl& context, const LangevinMiddleIntegrator& integrator) {
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -6092,6 +6154,7 @@ double CommonIntegrateLangevinMiddleStepKernel::computeKineticEnergy(ContextImpl
 
 void CommonIntegrateNoseHooverStepKernel::initialize(const System& system, const NoseHooverIntegrator& integrator) {
     cc.initializeContexts();
+    ContextSelector selector(cc);
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
     map<string, string> defines;
     defines["BOLTZ"] = cc.doubleToString(BOLTZ);
@@ -6152,6 +6215,7 @@ void CommonIntegrateNoseHooverStepKernel::initialize(const System& system, const
 }
 
 void CommonIntegrateNoseHooverStepKernel::execute(ContextImpl& context, const NoseHooverIntegrator& integrator, bool &forcesAreValid) {
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
     double dt = integrator.getStepSize();
@@ -6449,9 +6513,8 @@ std::pair<double, double> CommonIntegrateNoseHooverStepKernel::propagateChain(Co
 }
 
 double CommonIntegrateNoseHooverStepKernel::computeHeatBathEnergy(ContextImpl& context, const NoseHooverChain &nhc) {
-
+    ContextSelector selector(cc);
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
-
     int chainID = nhc.getChainID();
     int chainLength = nhc.getChainLength();
 
@@ -6532,9 +6595,8 @@ double CommonIntegrateNoseHooverStepKernel::computeHeatBathEnergy(ContextImpl& c
 }
 
 std::pair<double, double> CommonIntegrateNoseHooverStepKernel::computeMaskedKineticEnergy(ContextImpl& context, const NoseHooverChain &nhc, bool downloadValue) {
-
+    ContextSelector selector(cc);
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
-
     int chainID = nhc.getChainID();
     const auto & nhcAtoms = nhc.getThermostatedAtoms();
     const auto & nhcPairs = nhc.getThermostatedPairs();
@@ -6658,6 +6720,7 @@ void CommonIntegrateNoseHooverStepKernel::scaleVelocities(ContextImpl& context, 
 }
 
 void CommonIntegrateNoseHooverStepKernel::createCheckpoint(ContextImpl& context, ostream& stream) const {
+    ContextSelector selector(cc);
     int numChains = chainState.size();
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
     stream.write((char*) &numChains, sizeof(int));
@@ -6680,6 +6743,7 @@ void CommonIntegrateNoseHooverStepKernel::createCheckpoint(ContextImpl& context,
 }
 
 void CommonIntegrateNoseHooverStepKernel::loadCheckpoint(ContextImpl& context, istream& stream) {
+    ContextSelector selector(cc);
     int numChains;
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
     stream.read((char*) &numChains, sizeof(int));
@@ -6706,6 +6770,7 @@ void CommonIntegrateNoseHooverStepKernel::loadCheckpoint(ContextImpl& context, i
 }
 
 void CommonIntegrateNoseHooverStepKernel::getChainStates(ContextImpl& context, vector<vector<double> >& positions, vector<vector<double> >& velocities) const {
+    ContextSelector selector(cc);
     int numChains = chainState.size();
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
     positions.clear();
@@ -6734,6 +6799,7 @@ void CommonIntegrateNoseHooverStepKernel::getChainStates(ContextImpl& context, v
 }
 
 void CommonIntegrateNoseHooverStepKernel::setChainStates(ContextImpl& context, const vector<vector<double> >& positions, const vector<vector<double> >& velocities) {
+    ContextSelector selector(cc);
     int numChains = positions.size();
     bool useDouble = cc.getUseDoublePrecision() || cc.getUseMixedPrecision();
     chainState.clear();
@@ -6759,7 +6825,7 @@ void CommonIntegrateNoseHooverStepKernel::setChainStates(ContextImpl& context, c
 
 void CommonIntegrateBrownianStepKernel::initialize(const System& system, const BrownianIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
     ComputeProgram program = cc.compileProgram(CommonKernelSources::brownian);
     kernel1 = program->createKernel("integrateBrownianPart1");
@@ -6768,7 +6834,7 @@ void CommonIntegrateBrownianStepKernel::initialize(const System& system, const B
 }
 
 void CommonIntegrateBrownianStepKernel::execute(ContextImpl& context, const BrownianIntegrator& integrator) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -6844,7 +6910,7 @@ double CommonIntegrateBrownianStepKernel::computeKineticEnergy(ContextImpl& cont
 
 void CommonIntegrateVariableVerletStepKernel::initialize(const System& system, const VariableVerletIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     ComputeProgram program = cc.compileProgram(CommonKernelSources::verlet);
     kernel1 = program->createKernel("integrateVerletPart1");
     kernel2 = program->createKernel("integrateVerletPart2");
@@ -6853,7 +6919,7 @@ void CommonIntegrateVariableVerletStepKernel::initialize(const System& system, c
 }
 
 double CommonIntegrateVariableVerletStepKernel::execute(ContextImpl& context, const VariableVerletIntegrator& integrator, double maxTime) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -6944,7 +7010,7 @@ double CommonIntegrateVariableVerletStepKernel::computeKineticEnergy(ContextImpl
 
 void CommonIntegrateVariableLangevinStepKernel::initialize(const System& system, const VariableLangevinIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
     ComputeProgram program = cc.compileProgram(CommonKernelSources::langevin);
     kernel1 = program->createKernel("integrateLangevinPart1");
@@ -6956,7 +7022,7 @@ void CommonIntegrateVariableLangevinStepKernel::initialize(const System& system,
 }
 
 double CommonIntegrateVariableLangevinStepKernel::execute(ContextImpl& context, const VariableLangevinIntegrator& integrator, double maxTime) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int paddedNumAtoms = cc.getPaddedNumAtoms();
@@ -7125,7 +7191,7 @@ private:
 
 void CommonIntegrateCustomStepKernel::initialize(const System& system, const CustomIntegrator& integrator) {
     cc.initializeContexts();
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     cc.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
     numGlobalVariables = integrator.getNumGlobalVariables();
     int elementSize = (cc.getUseDoublePrecision() || cc.getUseMixedPrecision() ? sizeof(double) : sizeof(float));
@@ -7185,7 +7251,7 @@ string CommonIntegrateCustomStepKernel::createPerDofComputation(const string& va
 }
 
 void CommonIntegrateCustomStepKernel::prepareForComputation(ContextImpl& context, CustomIntegrator& integrator, bool& forcesAreValid) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
     int numSteps = integrator.getNumComputations();
@@ -7650,6 +7716,7 @@ void CommonIntegrateCustomStepKernel::findExpressionsForDerivs(const ExpressionT
 }
 
 void CommonIntegrateCustomStepKernel::execute(ContextImpl& context, CustomIntegrator& integrator, bool& forcesAreValid) {
+    ContextSelector selector(cc);
     prepareForComputation(context, integrator, forcesAreValid);
     IntegrationUtilities& integration = cc.getIntegrationUtilities();
     int numAtoms = cc.getNumAtoms();
@@ -7830,6 +7897,7 @@ bool CommonIntegrateCustomStepKernel::evaluateCondition(int step) {
 }
 
 double CommonIntegrateCustomStepKernel::computeKineticEnergy(ContextImpl& context, CustomIntegrator& integrator, bool& forcesAreValid) {
+    ContextSelector selector(cc);
     prepareForComputation(context, integrator, forcesAreValid);
     cc.clearBuffer(sumBuffer);
     kineticEnergyKernel->setArg(8, cc.getIntegrationUtilities().getRandom());
@@ -7906,6 +7974,7 @@ void CommonIntegrateCustomStepKernel::setGlobalVariables(ContextImpl& context, c
 }
 
 void CommonIntegrateCustomStepKernel::getPerDofVariable(ContextImpl& context, int variable, vector<Vec3>& values) const {
+    ContextSelector selector(cc);
     values.resize(perDofValues[variable].getSize());
     const vector<int>& order = cc.getAtomIndex();
     if (cc.getUseDoublePrecision() || cc.getUseMixedPrecision()) {
@@ -7949,7 +8018,7 @@ void CommonIntegrateCustomStepKernel::setPerDofVariable(ContextImpl& context, in
 }
 
 void CommonRemoveCMMotionKernel::initialize(const System& system, const CMMotionRemover& force) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     frequency = force.getFrequency();
     int numAtoms = cc.getNumAtoms();
     cmMomentum.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "cmMomentum");
@@ -7970,7 +8039,7 @@ void CommonRemoveCMMotionKernel::initialize(const System& system, const CMMotion
 }
 
 void CommonRemoveCMMotionKernel::execute(ContextImpl& context) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     kernel1->execute(cc.getNumAtoms(), 64);
     kernel2->execute(cc.getNumAtoms(), 64);
 }
@@ -7998,6 +8067,7 @@ private:
 void CommonCalcRMSDForceKernel::initialize(const System& system, const RMSDForce& force) {
     // Create data structures.
     
+    ContextSelector selector(cc);
     bool useDouble = cc.getUseDoublePrecision();
     int elementSize = (useDouble ? sizeof(double) : sizeof(float));
     int numParticles = force.getParticles().size();
@@ -8065,6 +8135,7 @@ void CommonCalcRMSDForceKernel::recordParameters(const RMSDForce& force) {
 }
 
 double CommonCalcRMSDForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    ContextSelector selector(cc);
     if (cc.getUseDoublePrecision())
         return executeImpl<double>(context);
     return executeImpl<float>(context);
@@ -8143,6 +8214,7 @@ double CommonCalcRMSDForceKernel::executeImpl(ContextImpl& context) {
 }
 
 void CommonCalcRMSDForceKernel::copyParametersToContext(ContextImpl& context, const RMSDForce& force) {
+    ContextSelector selector(cc);
     if (referencePos.getSize() != force.getReferencePositions().size())
         throw OpenMMException("updateParametersInContext: The number of reference positions has changed");
     int numParticles = force.getParticles().size();
@@ -8159,7 +8231,7 @@ void CommonCalcRMSDForceKernel::copyParametersToContext(ContextImpl& context, co
 }
 
 void CommonApplyAndersenThermostatKernel::initialize(const System& system, const AndersenThermostat& thermostat) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     randomSeed = thermostat.getRandomNumberSeed();
     ComputeProgram program = cc.compileProgram(CommonKernelSources::andersenThermostat);
     kernel = program->createKernel("applyAndersenThermostat");
@@ -8186,7 +8258,7 @@ void CommonApplyAndersenThermostatKernel::initialize(const System& system, const
 }
 
 void CommonApplyAndersenThermostatKernel::execute(ContextImpl& context) {
-    cc.setAsCurrent();
+    ContextSelector selector(cc);
     kernel->setArg(1, (float) context.getParameter(AndersenThermostat::CollisionFrequency()));
     kernel->setArg(2, (float) (BOLTZ*context.getParameter(AndersenThermostat::Temperature())));
     double stepSize = context.getIntegrator().getStepSize();
@@ -8198,7 +8270,9 @@ void CommonApplyAndersenThermostatKernel::execute(ContextImpl& context) {
     kernel->execute(cc.getNumAtoms());
 }
 
-void CommonApplyMonteCarloBarostatKernel::initialize(const System& system, const Force& thermostat) {
+void CommonApplyMonteCarloBarostatKernel::initialize(const System& system, const Force& thermostat, bool rigidMolecules) {
+    this->rigidMolecules = rigidMolecules;
+    ContextSelector selector(cc);
     savedPositions.initialize(cc, cc.getPaddedNumAtoms(), cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4), "savedPositions");
     savedLongForces.initialize<long long>(cc, cc.getPaddedNumAtoms()*3, "savedLongForces");
     try {
@@ -8213,12 +8287,20 @@ void CommonApplyMonteCarloBarostatKernel::initialize(const System& system, const
 }
 
 void CommonApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context, double scaleX, double scaleY, double scaleZ) {
+    ContextSelector selector(cc);
     if (!hasInitializedKernels) {
         hasInitializedKernels = true;
 
         // Create the arrays with the molecule definitions.
 
-        vector<vector<int> > molecules = context.getMolecules();
+        vector<vector<int> > molecules;
+        if (rigidMolecules)
+            molecules = context.getMolecules();
+        else {
+            molecules.resize(cc.getNumAtoms());
+            for (int i = 0; i < molecules.size(); i++)
+                molecules[i].push_back(i);
+        }
         numMolecules = molecules.size();
         moleculeAtoms.initialize<int>(cc, cc.getNumAtoms(), "moleculeAtoms");
         moleculeStartIndex.initialize<int>(cc, numMolecules+1, "moleculeStartIndex");
@@ -8236,10 +8318,6 @@ void CommonApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context,
 
         // Initialize the kernel arguments.
 
-//KERNEL void scalePositions(float scaleX, float scaleY, float scaleZ, int numMolecules, real4 periodicBoxSize,
-//        real4 invPeriodicBoxSize, real4 periodicBoxVecX, real4 periodicBoxVecY, real4 periodicBoxVecZ, GLOBAL real4* RESTRICT posq,
-//        GLOBAL const int* RESTRICT moleculeAtoms, GLOBAL const int* RESTRICT moleculeStartIndex) {
-        
         kernel->addArg();
         kernel->addArg();
         kernel->addArg();
@@ -8254,9 +8332,6 @@ void CommonApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context,
     cc.getLongForceBuffer().copyTo(savedLongForces);
     if (savedFloatForces.isInitialized())
         cc.getFloatForceBuffer().copyTo(savedFloatForces);
-//    int bytesToCopy = cc.getPosq().getSize()*(cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4));
-//    cc.getQueue().enqueueCopyBuffer(cc.getPosq().getDeviceBuffer(), savedPositions.getDeviceBuffer(), 0, 0, bytesToCopy);
-//    cc.getQueue().enqueueCopyBuffer(cc.getForce().getDeviceBuffer(), savedForces.getDeviceBuffer(), 0, 0, bytesToCopy);
     kernel->setArg(0, (float) scaleX);
     kernel->setArg(1, (float) scaleY);
     kernel->setArg(2, (float) scaleZ);
@@ -8268,12 +8343,9 @@ void CommonApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context,
 }
 
 void CommonApplyMonteCarloBarostatKernel::restoreCoordinates(ContextImpl& context) {
+    ContextSelector selector(cc);
     savedPositions.copyTo(cc.getPosq());
     savedLongForces.copyTo(cc.getLongForceBuffer());
     if (savedFloatForces.isInitialized())
         savedFloatForces.copyTo(cc.getFloatForceBuffer());
-
-//    int bytesToCopy = cc.getPosq().getSize()*(cc.getUseDoublePrecision() ? sizeof(mm_double4) : sizeof(mm_float4));
-//    cc.getQueue().enqueueCopyBuffer(savedPositions.getDeviceBuffer(), cc.getPosq().getDeviceBuffer(), 0, 0, bytesToCopy);
-//    cc.getQueue().enqueueCopyBuffer(savedForces.getDeviceBuffer(), cc.getForce().getDeviceBuffer(), 0, 0, bytesToCopy);
 }

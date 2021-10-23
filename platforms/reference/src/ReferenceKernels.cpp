@@ -215,6 +215,14 @@ void ReferenceUpdateStateDataKernel::setTime(ContextImpl& context, double time) 
     data.time = time;
 }
 
+long long ReferenceUpdateStateDataKernel::getStepCount(const ContextImpl& context) const {
+    return data.stepCount;
+}
+
+void ReferenceUpdateStateDataKernel::setStepCount(const ContextImpl& context, long long count) {
+    data.stepCount = count;
+}
+
 void ReferenceUpdateStateDataKernel::getPositions(ContextImpl& context, std::vector<Vec3>& positions) {
     int numParticles = context.getSystem().getNumParticles();
     vector<Vec3>& posData = extractPositions(context);
@@ -285,6 +293,7 @@ void ReferenceUpdateStateDataKernel::createCheckpoint(ContextImpl& context, ostr
     int version = 3;
     stream.write((char*) &version, sizeof(int));
     stream.write((char*) &data.time, sizeof(data.time));
+    stream.write((char*) &data.stepCount, sizeof(long long));
     vector<Vec3>& posData = extractPositions(context);
     stream.write((char*) &posData[0], sizeof(Vec3)*posData.size());
     vector<Vec3>& velData = extractVelocities(context);
@@ -300,6 +309,7 @@ void ReferenceUpdateStateDataKernel::loadCheckpoint(ContextImpl& context, istrea
     if (version != 3)
         throw OpenMMException("Checkpoint was created with a different version of OpenMM");
     stream.read((char*) &data.time, sizeof(data.time));
+    stream.read((char*) &data.stepCount, sizeof(long long));
     vector<Vec3>& posData = extractPositions(context);
     stream.read((char*) &posData[0], sizeof(Vec3)*posData.size());
     vector<Vec3>& velData = extractVelocities(context);
@@ -1252,9 +1262,15 @@ double ReferenceCalcCustomNonbondedForceKernel::execute(ContextImpl& context, bo
     
     // Add in the long range correction.
     
-    if (!hasInitializedLongRangeCorrection || (globalParamsChanged && forceCopy != NULL)) {
-        CustomNonbondedForceImpl::calcLongRangeCorrection(*forceCopy, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs);
+    if (!hasInitializedLongRangeCorrection) {
+        longRangeCorrectionData = CustomNonbondedForceImpl::prepareLongRangeCorrection(*forceCopy);
+        ThreadPool threads;
+        CustomNonbondedForceImpl::calcLongRangeCorrection(*forceCopy, longRangeCorrectionData, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs, threads);
         hasInitializedLongRangeCorrection = true;
+    }
+    else if (globalParamsChanged && forceCopy != NULL) {
+        ThreadPool threads;
+        CustomNonbondedForceImpl::calcLongRangeCorrection(*forceCopy, longRangeCorrectionData, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs, threads);
     }
     double volume = boxVectors[0][0]*boxVectors[1][1]*boxVectors[2][2];
     energy += longRangeCoefficient/volume;
@@ -1281,7 +1297,9 @@ void ReferenceCalcCustomNonbondedForceKernel::copyParametersToContext(ContextImp
     // If necessary, recompute the long range correction.
     
     if (forceCopy != NULL) {
-        CustomNonbondedForceImpl::calcLongRangeCorrection(force, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs);
+        longRangeCorrectionData = CustomNonbondedForceImpl::prepareLongRangeCorrection(force);
+        ThreadPool threads;
+        CustomNonbondedForceImpl::calcLongRangeCorrection(force, longRangeCorrectionData, context.getOwner(), longRangeCoefficient, longRangeCoefficientDerivs, threads);
         hasInitializedLongRangeCorrection = true;
         *forceCopy = force;
     }
@@ -1714,128 +1732,6 @@ void ReferenceCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl& c
         int a1, a2, a3;
         force.getAcceptorParameters(i, a1, a2, a3, parameters);
         if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2])
-            throw OpenMMException("updateParametersInContext: The set of particles in an acceptor group has changed");
-        for (int j = 0; j < numAcceptorParameters; j++)
-            acceptorParamArray[i][j] = parameters[j];
-    }
-}
-
-ReferenceCalcCustomResiduePairForceKernel::~ReferenceCalcCustomResiduePairForceKernel() {
-    if (ixn != NULL)
-        delete ixn;
-}
-
-void ReferenceCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
-
-    // Record the exclusions.
-
-    numDonors = force.getNumDonors();
-    numAcceptors = force.getNumAcceptors();
-    numParticles = system.getNumParticles();
-    exclusions.resize(numDonors);
-    for (int i = 0; i < force.getNumExclusions(); i++) {
-        int donor, acceptor;
-        force.getExclusionParticles(i, donor, acceptor);
-        exclusions[donor].insert(acceptor);
-    }
-
-    // Build the arrays.
-
-    vector<vector<int> > donorParticles(numDonors);
-    int numDonorParameters = force.getNumPerDonorParameters();
-    donorParamArray.resize(numDonors);
-    for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3, d4;
-        force.getDonorParameters(i, d1, d2, d3, d4, donorParamArray[i]);
-        donorParticles[i].push_back(d1);
-        donorParticles[i].push_back(d2);
-        donorParticles[i].push_back(d3);
-        donorParticles[i].push_back(d4);
-    }
-    vector<vector<int> > acceptorParticles(numAcceptors);
-    int numAcceptorParameters = force.getNumPerAcceptorParameters();
-    acceptorParamArray.resize(numAcceptors);
-    for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3, a4;
-        force.getAcceptorParameters(i, a1, a2, a3, a4, acceptorParamArray[i]);
-        acceptorParticles[i].push_back(a1);
-        acceptorParticles[i].push_back(a2);
-        acceptorParticles[i].push_back(a3);
-        acceptorParticles[i].push_back(a4);
-    }
-    NonbondedMethod nonbondedMethod = CalcCustomResiduePairForceKernel::NonbondedMethod(force.getNonbondedMethod());
-    nonbondedCutoff = force.getCutoffDistance();
-
-    // Create custom functions for the tabulated functions.
-
-    map<string, Lepton::CustomFunction*> functions;
-    for (int i = 0; i < force.getNumFunctions(); i++)
-        functions[force.getTabulatedFunctionName(i)] = createReferenceTabulatedFunction(force.getTabulatedFunction(i));
-
-    // Parse the expression and create the object used to calculate the interaction.
-
-    map<string, vector<int> > distances;
-    map<string, vector<int> > angles;
-    map<string, vector<int> > vectorangles;
-    map<string, vector<int> > dihedrals;
-    Lepton::ParsedExpression energyExpression = CustomResiduePairForceImpl::prepareExpression(force, functions, distances, angles, vectorangles, dihedrals);
-    vector<string> donorParameterNames;
-    vector<string> acceptorParameterNames;
-    for (int i = 0; i < numDonorParameters; i++)
-        donorParameterNames.push_back(force.getPerDonorParameterName(i));
-    for (int i = 0; i < numAcceptorParameters; i++)
-        acceptorParameterNames.push_back(force.getPerAcceptorParameterName(i));
-    for (int i = 0; i < force.getNumGlobalParameters(); i++)
-        globalParameterNames.push_back(force.getGlobalParameterName(i));
-    ixn = new ReferenceCustomResiduePairIxn(donorParticles, acceptorParticles, energyExpression, donorParameterNames, acceptorParameterNames, distances, angles, vectorangles, dihedrals);
-    isPeriodic = (nonbondedMethod == CutoffPeriodic);
-    if (nonbondedMethod != NoCutoff)
-        ixn->setUseCutoff(nonbondedCutoff);
-
-    // Delete the custom functions.
-
-    for (auto& function : functions)
-        delete function.second;
-}
-
-double ReferenceCalcCustomResiduePairForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
-    vector<Vec3>& posData = extractPositions(context);
-    vector<Vec3>& forceData = extractForces(context);
-    if (isPeriodic)
-        ixn->setPeriodic(extractBoxVectors(context));
-    double energy = 0;
-    map<string, double> globalParameters;
-    for (auto& name : globalParameterNames)
-        globalParameters[name] = context.getParameter(name);
-    ixn->calculatePairIxn(posData, donorParamArray, acceptorParamArray, exclusions, globalParameters, forceData, includeEnergy ? &energy : NULL);
-    return energy;
-}
-
-void ReferenceCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force) {
-    if (numDonors != force.getNumDonors())
-        throw OpenMMException("updateParametersInContext: The number of donors has changed");
-    if (numAcceptors != force.getNumAcceptors())
-        throw OpenMMException("updateParametersInContext: The number of acceptors has changed");
-
-    // Record the values.
-
-    vector<double> parameters;
-    int numDonorParameters = force.getNumPerDonorParameters();
-    const vector<vector<int> >& donorAtoms = ixn->getDonorAtoms();
-    for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3,d4;
-        force.getDonorParameters(i, d1, d2, d3,d4, parameters);
-        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2] || d4 != donorAtoms[i][3])
-            throw OpenMMException("updateParametersInContext: The set of particles in a donor group has changed");
-        for (int j = 0; j < numDonorParameters; j++)
-            donorParamArray[i][j] = parameters[j];
-    }
-    int numAcceptorParameters = force.getNumPerAcceptorParameters();
-    const vector<vector<int> >& acceptorAtoms = ixn->getAcceptorAtoms();
-    for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3,a4;
-        force.getAcceptorParameters(i, a1, a2, a3,a4, parameters);
-        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2] || a4 != acceptorAtoms[i][3])
             throw OpenMMException("updateParametersInContext: The set of particles in an acceptor group has changed");
         for (int j = 0; j < numAcceptorParameters; j++)
             acceptorParamArray[i][j] = parameters[j];
@@ -2810,12 +2706,21 @@ ReferenceApplyMonteCarloBarostatKernel::~ReferenceApplyMonteCarloBarostatKernel(
         delete barostat;
 }
 
-void ReferenceApplyMonteCarloBarostatKernel::initialize(const System& system, const Force& barostat) {
+void ReferenceApplyMonteCarloBarostatKernel::initialize(const System& system, const Force& barostat, bool rigidMolecules) {
+    this->rigidMolecules = rigidMolecules;
 }
 
 void ReferenceApplyMonteCarloBarostatKernel::scaleCoordinates(ContextImpl& context, double scaleX, double scaleY, double scaleZ) {
-    if (barostat == NULL)
-        barostat = new ReferenceMonteCarloBarostat(context.getSystem().getNumParticles(), context.getMolecules());
+    if (barostat == NULL) {
+        if (rigidMolecules)
+            barostat = new ReferenceMonteCarloBarostat(context.getSystem().getNumParticles(), context.getMolecules());
+        else {
+            vector<vector<int> > molecules(context.getSystem().getNumParticles());
+            for (int i = 0; i < molecules.size(); i++)
+                molecules[i].push_back(i);
+            barostat = new ReferenceMonteCarloBarostat(context.getSystem().getNumParticles(), molecules);
+        }
+    }
     vector<Vec3>& posData = extractPositions(context);
     Vec3* boxVectors = extractBoxVectors(context);
     barostat->applyBarostat(posData, boxVectors, scaleX, scaleY, scaleZ);

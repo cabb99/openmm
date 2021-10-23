@@ -34,6 +34,7 @@
 
 #include "ReferencePlatform.h"
 #include "openmm/kernels.h"
+#include "openmm/internal/CustomNonbondedForceImpl.h"
 #include "SimTKOpenMMRealType.h"
 #include "ReferenceNeighborList.h"
 #include "lepton/CompiledExpression.h"
@@ -138,6 +139,18 @@ public:
      * @param context    the context in which to execute this kernel
      */
     void setTime(ContextImpl& context, double time);
+    /**
+     * Get the current step count
+     *
+     * @param context    the context in which to execute this kernel
+     */
+    long long getStepCount(const ContextImpl& context) const;
+    /**
+     * Set the current step count
+     *
+     * @param context    the context in which to execute this kernel
+     */
+    void setStepCount(const ContextImpl& context, long long count);
     /**
      * Get the positions of all particles.
      *
@@ -675,6 +688,7 @@ private:
     double nonbondedCutoff, switchingDistance, periodicBoxSize[3], longRangeCoefficient;
     bool useSwitchingFunction, hasInitializedLongRangeCorrection;
     CustomNonbondedForce* forceCopy;
+    CustomNonbondedForceImpl::LongRangeCorrectionData longRangeCorrectionData;
     std::map<std::string, double> globalParamValues;
     std::vector<std::set<int> > exclusions;
     Lepton::CompiledExpression energyExpression, forceExpression;
@@ -1574,8 +1588,9 @@ public:
      *
      * @param system     the System this kernel will be applied to
      * @param barostat   the MonteCarloBarostat this kernel will be used for
+     * @param rigidMolecules  whether molecules should be kept rigid while scaling coordinates
      */
-    void initialize(const System& system, const Force& barostat);
+    void initialize(const System& system, const Force& barostat, bool rigidMolecules=true);
     /**
      * Attempt a Monte Carlo step, scaling particle positions (or cluster centers) by a specified value.
      * This version scales the x, y, and z positions independently.
@@ -1597,6 +1612,7 @@ public:
      */
     void restoreCoordinates(ContextImpl& context);
 private:
+    bool rigidMolecules;
     ReferenceMonteCarloBarostat* barostat;
 };
 

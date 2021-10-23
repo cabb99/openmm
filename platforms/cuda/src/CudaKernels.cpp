@@ -29,6 +29,7 @@
 #include "openmm/Context.h"
 #include "openmm/internal/ContextImpl.h"
 #include "openmm/internal/NonbondedForceImpl.h"
+#include "openmm/common/ContextSelector.h"
 #include "CommonKernelSources.h"
 #include "CudaBondedUtilities.h"
 #include "CudaExpressionUtilities.h"
@@ -58,7 +59,7 @@ void CudaCalcForcesAndEnergyKernel::initialize(const System& system) {
 
 void CudaCalcForcesAndEnergyKernel::beginComputation(ContextImpl& context, bool includeForces, bool includeEnergy, int groups) {
     cu.setForcesValid(true);
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     cu.clearAutoclearBuffers();
     for (auto computation : cu.getPreComputations())
         computation->computeForceAndEnergy(includeForces, includeEnergy, groups);
@@ -71,7 +72,7 @@ void CudaCalcForcesAndEnergyKernel::beginComputation(ContextImpl& context, bool 
 }
 
 double CudaCalcForcesAndEnergyKernel::finishComputation(ContextImpl& context, bool includeForces, bool includeEnergy, int groups, bool& valid) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     cu.getBondedUtilities().computeInteractions(groups);
     cu.getNonbondedUtilities().computeInteractions(groups, includeForces, includeEnergy);
     double sum = 0.0;
@@ -98,8 +99,18 @@ void CudaUpdateStateDataKernel::setTime(ContextImpl& context, double time) {
         ctx->setTime(time);
 }
 
+long long CudaUpdateStateDataKernel::getStepCount(const ContextImpl& context) const {
+    return cu.getStepCount();
+}
+
+void CudaUpdateStateDataKernel::setStepCount(const ContextImpl& context, long long count) {
+    vector<CudaContext*>& contexts = cu.getPlatformData().contexts;
+    for (auto ctx : contexts)
+        ctx->setStepCount(count);
+}
+
 void CudaUpdateStateDataKernel::getPositions(ContextImpl& context, vector<Vec3>& positions) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     int numParticles = context.getSystem().getNumParticles();
     positions.resize(numParticles);
     vector<float4> posCorrection;
@@ -160,7 +171,7 @@ void CudaUpdateStateDataKernel::getPositions(ContextImpl& context, vector<Vec3>&
 }
 
 void CudaUpdateStateDataKernel::setPositions(ContextImpl& context, const vector<Vec3>& positions) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     const vector<int>& order = cu.getAtomIndex();
     int numParticles = context.getSystem().getNumParticles();
     if (cu.getUseDoublePrecision()) {
@@ -211,7 +222,7 @@ void CudaUpdateStateDataKernel::setPositions(ContextImpl& context, const vector<
 }
 
 void CudaUpdateStateDataKernel::getVelocities(ContextImpl& context, vector<Vec3>& velocities) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     const vector<int>& order = cu.getAtomIndex();
     int numParticles = context.getSystem().getNumParticles();
     velocities.resize(numParticles);
@@ -236,7 +247,7 @@ void CudaUpdateStateDataKernel::getVelocities(ContextImpl& context, vector<Vec3>
 }
 
 void CudaUpdateStateDataKernel::setVelocities(ContextImpl& context, const vector<Vec3>& velocities) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     const vector<int>& order = cu.getAtomIndex();
     int numParticles = context.getSystem().getNumParticles();
     if (cu.getUseDoublePrecision() || cu.getUseMixedPrecision()) {
@@ -270,7 +281,7 @@ void CudaUpdateStateDataKernel::setVelocities(ContextImpl& context, const vector
 }
 
 void CudaUpdateStateDataKernel::getForces(ContextImpl& context, vector<Vec3>& forces) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     long long* force = (long long*) cu.getPinnedBuffer();
     cu.getForce().download(force);
     const vector<int>& order = cu.getAtomIndex();
@@ -283,6 +294,7 @@ void CudaUpdateStateDataKernel::getForces(ContextImpl& context, vector<Vec3>& fo
 }
 
 void CudaUpdateStateDataKernel::getEnergyParameterDerivatives(ContextImpl& context, map<string, double>& derivs) {
+    ContextSelector selector(cu);
     const vector<string>& paramDerivNames = cu.getEnergyParamDerivNames();
     int numDerivs = paramDerivNames.size();
     if (numDerivs == 0)
@@ -336,15 +348,15 @@ void CudaUpdateStateDataKernel::setPeriodicBoxVectors(ContextImpl& context, cons
 }
 
 void CudaUpdateStateDataKernel::createCheckpoint(ContextImpl& context, ostream& stream) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     int version = 3;
     stream.write((char*) &version, sizeof(int));
     int precision = (cu.getUseDoublePrecision() ? 2 : cu.getUseMixedPrecision() ? 1 : 0);
     stream.write((char*) &precision, sizeof(int));
     double time = cu.getTime();
     stream.write((char*) &time, sizeof(double));
-    int stepCount = cu.getStepCount();
-    stream.write((char*) &stepCount, sizeof(int));
+    long long stepCount = cu.getStepCount();
+    stream.write((char*) &stepCount, sizeof(long long));
     int stepsSinceReorder = cu.getStepsSinceReorder();
     stream.write((char*) &stepsSinceReorder, sizeof(int));
     char* buffer = (char*) cu.getPinnedBuffer();
@@ -366,7 +378,7 @@ void CudaUpdateStateDataKernel::createCheckpoint(ContextImpl& context, ostream& 
 }
 
 void CudaUpdateStateDataKernel::loadCheckpoint(ContextImpl& context, istream& stream) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     int version;
     stream.read((char*) &version, sizeof(int));
     if (version != 3)
@@ -378,8 +390,9 @@ void CudaUpdateStateDataKernel::loadCheckpoint(ContextImpl& context, istream& st
         throw OpenMMException("Checkpoint was created with a different numeric precision");
     double time;
     stream.read((char*) &time, sizeof(double));
-    int stepCount, stepsSinceReorder;
-    stream.read((char*) &stepCount, sizeof(int));
+    long long stepCount;
+    stream.read((char*) &stepCount, sizeof(long long));
+    int stepsSinceReorder;
     stream.read((char*) &stepsSinceReorder, sizeof(int));
     vector<CudaContext*>& contexts = cu.getPlatformData().contexts;
     for (auto ctx : contexts) {
@@ -447,7 +460,7 @@ public:
         forceTemp.initialize<float4>(cu, cu.getNumAtoms(), "PmeForce");
     }
     float* getPosq() {
-        cu.setAsCurrent();
+        ContextSelector selector(cu);
         cu.getPosq().download(posq);
         return (float*) &posq[0];
     }
@@ -531,7 +544,7 @@ private:
 };
 
 CudaCalcNonbondedForceKernel::~CudaCalcNonbondedForceKernel() {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     if (sort != NULL)
         delete sort;
     if (fft != NULL)
@@ -558,7 +571,7 @@ CudaCalcNonbondedForceKernel::~CudaCalcNonbondedForceKernel() {
 }
 
 void CudaCalcNonbondedForceKernel::initialize(const System& system, const NonbondedForce& force) {
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     int forceIndex;
     for (forceIndex = 0; forceIndex < system.getNumForces() && &system.getForce(forceIndex) != &force; ++forceIndex)
         ;
@@ -1118,6 +1131,7 @@ void CudaCalcNonbondedForceKernel::initialize(const System& system, const Nonbon
 double CudaCalcNonbondedForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy, bool includeDirect, bool includeReciprocal) {
     // Update particle and exception parameters.
 
+    ContextSelector selector(cu);
     bool paramChanged = false;
     for (int i = 0; i < paramNames.size(); i++) {
         double value = context.getParameter(paramNames[i]);
@@ -1353,7 +1367,7 @@ double CudaCalcNonbondedForceKernel::execute(ContextImpl& context, bool includeF
 void CudaCalcNonbondedForceKernel::copyParametersToContext(ContextImpl& context, const NonbondedForce& force) {
     // Make sure the new parameters are acceptable.
     
-    cu.setAsCurrent();
+    ContextSelector selector(cu);
     if (force.getNumParticles() != cu.getNumAtoms())
         throw OpenMMException("updateParametersInContext: The number of particles has changed");
     if (!hasCoulomb || !hasLJ) {
