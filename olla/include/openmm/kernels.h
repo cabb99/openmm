@@ -44,6 +44,7 @@
 #include "openmm/CustomCompoundBondForce.h"
 #include "openmm/CustomExternalForce.h"
 #include "openmm/CustomGBForce.h"
+#include "openmm/CustomResiduePairForce.h"
 #include "openmm/CustomHbondForce.h"
 #include "openmm/CustomIntegrator.h"
 #include "openmm/CustomNonbondedForce.h"
@@ -824,6 +825,47 @@ public:
      * @param force      the CustomHbondForce to copy the parameters from
      */
     virtual void copyParametersToContext(ContextImpl& context, const CustomHbondForce& force) = 0;
+};
+
+
+/**
+ * This kernel is invoked by CustomResiduePairForce to calculate the forces acting on the system and the energy of the system.
+ */
+class CalcCustomResiduePairForceKernel : public KernelImpl {
+public:
+    enum NonbondedMethod {
+        NoCutoff = 0,
+        CutoffNonPeriodic = 1,
+        CutoffPeriodic = 2
+    };
+    static std::string Name() {
+        return "CalcCustomResiduePairForce";
+    }
+    CalcCustomResiduePairForceKernel(std::string name, const Platform& platform) : KernelImpl(name, platform) {
+    }
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param force      the CustomResiduePairForce this kernel will be used for
+     */
+    virtual void initialize(const System& system, const CustomResiduePairForce& force) = 0;
+    /**
+     * Execute the kernel to calculate the forces and/or energy.
+     *
+     * @param context        the context in which to execute this kernel
+     * @param includeForces  true if forces should be calculated
+     * @param includeEnergy  true if the energy should be calculated
+     * @return the potential energy due to the force
+     */
+    virtual double execute(ContextImpl& context, bool includeForces, bool includeEnergy) = 0;
+    /**
+     * Copy changed parameters over to a context.
+     *
+     * @param context    the context to copy parameters to
+     * @param force      the CustomResiduePairForce to copy the parameters from
+     */
+    virtual void copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force) = 0;
 };
 
 /**

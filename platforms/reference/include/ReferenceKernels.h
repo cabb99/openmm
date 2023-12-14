@@ -56,6 +56,7 @@ class ReferenceCustomCentroidBondIxn;
 class ReferenceCustomCompoundBondIxn;
 class ReferenceCustomCVForce;
 class ReferenceCustomHbondIxn;
+class ReferenceCustomResiduePairIxn;
 class ReferenceCustomManyParticleIxn;
 class ReferenceGayBerneForce;
 class ReferenceBrownianDynamics;
@@ -886,6 +887,47 @@ private:
     std::vector<std::set<int> > exclusions;
     std::vector<std::string> globalParameterNames;
     std::map<std::string, int> tabulatedFunctionUpdateCount;
+};
+
+/**
+ * This kernel is invoked by CustomResiduePairForce to calculate the forces acting on the system.
+ */
+class ReferenceCalcCustomResiduePairForceKernel : public CalcCustomResiduePairForceKernel {
+public:
+    ReferenceCalcCustomResiduePairForceKernel(std::string name, const Platform& platform) : CalcCustomResiduePairForceKernel(name, platform), ixn(NULL) {
+    }
+    ~ReferenceCalcCustomResiduePairForceKernel();
+    /**
+     * Initialize the kernel.
+     *
+     * @param system     the System this kernel will be applied to
+     * @param force      the CustomResiduePairForce this kernel will be used for
+     */
+    void initialize(const System& system, const CustomResiduePairForce& force);
+    /**
+     * Execute the kernel to calculate the forces and/or energy.
+     *
+     * @param context        the context in which to execute this kernel
+     * @param includeForces  true if forces should be calculated
+     * @param includeEnergy  true if the energy should be calculated
+     * @return the potential energy due to the force
+     */
+    double execute(ContextImpl& context, bool includeForces, bool includeEnergy);
+    /**
+     * Copy changed parameters over to a context.
+     *
+     * @param context    the context to copy parameters to
+     * @param force      the CustomResiduePairForce to copy the parameters from
+     */
+    void copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force);
+private:
+    int numDonors, numAcceptors, numParticles;
+    bool isPeriodic;
+    std::vector<std::vector<double> > donorParamArray, acceptorParamArray;
+    double nonbondedCutoff;
+    ReferenceCustomResiduePairIxn* ixn;
+    std::vector<std::set<int> > exclusions;
+    std::vector<std::string> globalParameterNames;
 };
 
 /**

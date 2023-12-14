@@ -124,7 +124,7 @@ double ReferenceBondIxn::getNormedDotProduct(double* vector1, double* vector2,
 
 double ReferenceBondIxn::getAngleBetweenTwoVectors(double* vector1, double* vector2, double* outputDotProduct, int hasREntry) {
 
-    // get dot product betweenn vectors and then angle
+    // get dot product between vectors and then angle
 
    double dotProduct = getNormedDotProduct(vector1, vector2, hasREntry);
 

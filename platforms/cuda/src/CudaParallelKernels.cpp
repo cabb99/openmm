@@ -791,6 +791,47 @@ void CudaParallelCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl
         getKernel(i).copyParametersToContext(context, force);
 }
 
+class CudaParallelCalcCustomResiduePairForceKernel::Task : public CudaContext::WorkTask {
+public:
+    Task(ContextImpl& context, CommonCalcCustomResiduePairForceKernel& kernel, bool includeForce,
+            bool includeEnergy, double& energy) : context(context), kernel(kernel),
+            includeForce(includeForce), includeEnergy(includeEnergy), energy(energy) {
+    }
+    void execute() {
+        energy += kernel.execute(context, includeForce, includeEnergy);
+    }
+private:
+    ContextImpl& context;
+    CommonCalcCustomResiduePairForceKernel& kernel;
+    bool includeForce, includeEnergy;
+    double& energy;
+};
+
+CudaParallelCalcCustomResiduePairForceKernel::CudaParallelCalcCustomResiduePairForceKernel(std::string name, const Platform& platform, CudaPlatform::PlatformData& data, const System& system) :
+        CalcCustomResiduePairForceKernel(name, platform), data(data) {
+    for (int i = 0; i < (int) data.contexts.size(); i++)
+        kernels.push_back(Kernel(new CommonCalcCustomResiduePairForceKernel(name, platform, *data.contexts[i], system)));
+}
+
+void CudaParallelCalcCustomResiduePairForceKernel::initialize(const System& system, const CustomResiduePairForce& force) {
+    for (int i = 0; i < (int) kernels.size(); i++)
+        getKernel(i).initialize(system, force);
+}
+
+double CudaParallelCalcCustomResiduePairForceKernel::execute(ContextImpl& context, bool includeForces, bool includeEnergy) {
+    for (int i = 0; i < (int) data.contexts.size(); i++) {
+        CudaContext& cu = *data.contexts[i];
+        ComputeContext::WorkThread& thread = cu.getWorkThread();
+        thread.addTask(new Task(context, getKernel(i), includeForces, includeEnergy, data.contextEnergy[i]));
+    }
+    return 0.0;
+}
+
+void CudaParallelCalcCustomResiduePairForceKernel::copyParametersToContext(ContextImpl& context, const CustomResiduePairForce& force) {
+    for (int i = 0; i < (int) kernels.size(); i++)
+        getKernel(i).copyParametersToContext(context, force);
+}
+
 class CudaParallelCalcCustomCompoundBondForceKernel::Task : public CudaContext::WorkTask {
 public:
     Task(ContextImpl& context, CommonCalcCustomCompoundBondForceKernel& kernel, bool includeForce,

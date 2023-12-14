@@ -65,6 +65,8 @@ KernelImpl* CudaKernelFactory::createKernelImpl(std::string name, const Platform
             return new CudaParallelCalcCustomExternalForceKernel(name, platform, data, context.getSystem());
         if (name == CalcCustomHbondForceKernel::Name())
             return new CudaParallelCalcCustomHbondForceKernel(name, platform, data, context.getSystem());
+        if (name == CalcCustomResiduePairForceKernel::Name())
+            return new CudaParallelCalcCustomResiduePairForceKernel(name, platform, data, context.getSystem());
         if (name == CalcCustomCompoundBondForceKernel::Name())
             return new CudaParallelCalcCustomCompoundBondForceKernel(name, platform, data, context.getSystem());
     }
@@ -105,6 +107,8 @@ KernelImpl* CudaKernelFactory::createKernelImpl(std::string name, const Platform
         return new CommonCalcCustomExternalForceKernel(name, platform, cu, context.getSystem());
     if (name == CalcCustomHbondForceKernel::Name())
         return new CommonCalcCustomHbondForceKernel(name, platform, cu, context.getSystem());
+    if (name == CalcCustomResiduePairForceKernel::Name())
+        return new CommonCalcCustomResiduePairForceKernel(name, platform, cu, context.getSystem());
     if (name == CalcCustomCentroidBondForceKernel::Name())
         return new CommonCalcCustomCentroidBondForceKernel(name, platform, cu, context.getSystem());
     if (name == CalcCustomCompoundBondForceKernel::Name())
