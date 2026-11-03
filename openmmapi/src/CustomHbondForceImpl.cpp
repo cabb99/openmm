@@ -220,7 +220,35 @@ ParsedExpression CustomHbondForceImpl::prepareExpression(const CustomHbondForce&
         variables.insert(force.getPerAcceptorParameterName(i));
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         variables.insert(force.getGlobalParameterName(i));
-    return ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, variables)).optimize();
+    ParsedExpression result = ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, variables)).optimize();
+
+    // Every particle referenced by the expression must be defined by every donor or acceptor group.
+
+    set<int> usedParticles;
+    for (auto* terms : {&distances, &angles, &dihedrals})
+        for (auto& term : *terms)
+            usedParticles.insert(term.second.begin(), term.second.end());
+    const string particleNames[] = {"a1", "a2", "a3", "d1", "d2", "d3"};
+    vector<double> parameters;
+    for (int particle : usedParticles) {
+        bool isDonor = (particle >= 3);
+        int slot = particle%3;
+        int numGroups = (isDonor ? force.getNumDonors() : force.getNumAcceptors());
+        for (int i = 0; i < numGroups; i++) {
+            int p[3];
+            if (isDonor)
+                force.getDonorParameters(i, p[0], p[1], p[2], parameters);
+            else
+                force.getAcceptorParameters(i, p[0], p[1], p[2], parameters);
+            if (p[slot] == -1) {
+                stringstream msg;
+                msg << "CustomHbondForce: The energy expression uses " << particleNames[particle] << ", but ";
+                msg << (isDonor ? "donor " : "acceptor ") << i << " does not include that particle";
+                throw OpenMMException(msg.str());
+            }
+        }
+    }
+    return result;
 }
 
 ExpressionTreeNode CustomHbondForceImpl::replaceFunctions(const ExpressionTreeNode& node, map<string, int> atoms,

@@ -38,6 +38,8 @@
 #include "openmm/VerletIntegrator.h"
 #include "sfmt/SFMT.h"
 #include <iostream>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace OpenMM;
@@ -358,6 +360,38 @@ void testLargeSystem(CustomHbondForce::NonbondedMethod method) {
     ASSERT_EQUAL_TOL(expectedEnergy, state.getPotentialEnergy(), 1e-5);
 }
 
+void testParticleMissingFromGroup() {
+    // Groups may omit particles the energy expression does not use, but creating a Context
+    // must fail if the expression uses a particle that some donor or acceptor does not include.
+
+    vector<pair<string, bool> > cases = {
+        {"distance(d1,a1)", true},
+        {"angle(d2,d1,a1)+distance(d1,a1)", true},
+        {"angle(d3,d1,a1)", false},
+        {"distance(d1,a2)", false},
+        {"dihedral(d2,d1,a1,a3)", false}
+    };
+    for (auto& c : cases) {
+        System system;
+        for (int i = 0; i < 6; i++)
+            system.addParticle(1.0);
+        CustomHbondForce* custom = new CustomHbondForce(c.first);
+        custom->addDonor(0, 1, 2);
+        custom->addDonor(3, 4, -1);
+        custom->addAcceptor(5, -1, -1);
+        system.addForce(custom);
+        VerletIntegrator integrator(0.01);
+        bool threwException = false;
+        try {
+            Context context(system, integrator, platform);
+        }
+        catch (const OpenMMException& e) {
+            threwException = true;
+        }
+        ASSERT_EQUAL(!c.second, threwException);
+    }
+}
+
 void runPlatformTests();
 
 int main(int argc, char* argv[]) {
@@ -373,6 +407,7 @@ int main(int argc, char* argv[]) {
         testLargeSystem(CustomHbondForce::NoCutoff);
         testLargeSystem(CustomHbondForce::CutoffNonPeriodic);
         testLargeSystem(CustomHbondForce::CutoffPeriodic);
+        testParticleMissingFromGroup();
         runPlatformTests();
     }
     catch(const exception& e) {
