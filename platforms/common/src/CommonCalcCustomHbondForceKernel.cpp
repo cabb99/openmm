@@ -52,45 +52,21 @@ public:
         return force.getNumDonors()+force.getNumAcceptors()+force.getNumExclusions();
     }
     void getParticlesInGroup(int index, vector<int>& particles) {
-        int p1, p2, p3;
-        thread_local static vector<double> parameters;
+        particles.clear();
         if (index < force.getNumDonors()) {
-            force.getDonorParameters(index, p1, p2, p3, parameters);
-            particles.clear();
-            particles.push_back(p1);
-            if (p2 > -1)
-                particles.push_back(p2);
-            if (p3 > -1)
-                particles.push_back(p3);
+            addDonorParticles(index, particles);
             return;
         }
         index -= force.getNumDonors();
         if (index < force.getNumAcceptors()) {
-            force.getAcceptorParameters(index, p1, p2, p3, parameters);
-            particles.clear();
-            particles.push_back(p1);
-            if (p2 > -1)
-                particles.push_back(p2);
-            if (p3 > -1)
-                particles.push_back(p3);
+            addAcceptorParticles(index, particles);
             return;
         }
         index -= force.getNumAcceptors();
         int donor, acceptor;
         force.getExclusionParticles(index, donor, acceptor);
-        particles.clear();
-        force.getDonorParameters(donor, p1, p2, p3, parameters);
-        particles.push_back(p1);
-        if (p2 > -1)
-            particles.push_back(p2);
-        if (p3 > -1)
-            particles.push_back(p3);
-        force.getAcceptorParameters(acceptor, p1, p2, p3, parameters);
-        particles.push_back(p1);
-        if (p2 > -1)
-            particles.push_back(p2);
-        if (p3 > -1)
-            particles.push_back(p3);
+        addDonorParticles(donor, particles);
+        addAcceptorParticles(acceptor, particles);
     }
     bool areGroupsIdentical(int group1, int group2) {
         int p1, p2, p3;
@@ -114,6 +90,20 @@ public:
         return true;
     }
 private:
+    void addDonorParticles(int donor, vector<int>& particles) {
+        int p[4];
+        force.getDonorParticles(donor, p[0], p[1], p[2], p[3]);
+        for (int i = 0; i < 4; i++)
+            if (p[i] > -1)
+                particles.push_back(p[i]);
+    }
+    void addAcceptorParticles(int acceptor, vector<int>& particles) {
+        int p[4];
+        force.getAcceptorParticles(acceptor, p[0], p[1], p[2], p[3]);
+        for (int i = 0; i < 4; i++)
+            if (p[i] > -1)
+                particles.push_back(p[i]);
+    }
     const CustomHbondForce& force;
 };
 
@@ -126,12 +116,12 @@ CommonCalcCustomHbondForceKernel::~CommonCalcCustomHbondForceKernel() {
 }
 
 static void applyDonorAndAcceptorForces(stringstream& apply, int atom, const string& value, bool trim=true) {
-    string forceNames[] = {"f1", "f2", "f3"};
+    string forceNames[] = {"f1", "f2", "f3", "f4"};
     string toAdd = (trim ? "trimTo3("+value+")" : value);
-    if (atom < 3)
+    if (atom < 4)
         apply << "localData[tbx+index]." << forceNames[atom]<<" += "<<toAdd<<";\n";
     else
-        apply << forceNames[atom-3]<<" += "<<toAdd<<";\n";
+        apply << forceNames[atom-4]<<" += "<<toAdd<<";\n";
 }
 
 void CommonCalcCustomHbondForceKernel::initialize(const System& system, const CustomHbondForce& force) {
@@ -155,6 +145,7 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
     for (int i = 0; i < numDonors; i++) {
         vector<double> parameters;
         force.getDonorParameters(startIndex+i, donorVector[i].x, donorVector[i].y, donorVector[i].z, parameters);
+        force.getDonorParticles(startIndex+i, donorVector[i].x, donorVector[i].y, donorVector[i].z, donorVector[i].w);
         donorParamVector[i].resize(parameters.size());
         for (int j = 0; j < (int) parameters.size(); j++)
             donorParamVector[i][j] = (float) parameters[j];
@@ -166,6 +157,7 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
     for (int i = 0; i < numAcceptors; i++) {
         vector<double> parameters;
         force.getAcceptorParameters(i, acceptorVector[i].x, acceptorVector[i].y, acceptorVector[i].z, parameters);
+        force.getAcceptorParticles(i, acceptorVector[i].x, acceptorVector[i].y, acceptorVector[i].z, acceptorVector[i].w);
         acceptorParamVector[i].resize(parameters.size());
         for (int j = 0; j < (int) parameters.size(); j++)
             acceptorParamVector[i][j] = (float) parameters[j];
@@ -276,8 +268,8 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
     map<string, Lepton::ParsedExpression> forceExpressions;
     set<string> computedDeltas;
     computedDeltas.insert("D1A1");
-    string atomNames[] = {"A1", "A2", "A3", "D1", "D2", "D3"};
-    string atomNamesLower[] = {"a1", "a2", "a3", "d1", "d2", "d3"};
+    string atomNames[] = {"A1", "A2", "A3", "A4", "D1", "D2", "D3", "D4"};
+    string atomNamesLower[] = {"a1", "a2", "a3", "a4", "d1", "d2", "d3", "d4"};
     stringstream compute, extraArgs;
     int index = 0;
     for (auto& distance : distances) {
@@ -340,6 +332,16 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
         forceExpressions["real dEdDihedral"+cc.intToString(index)+" = "] = energyExpression.differentiate(dihedral.first).optimize();
         index++;
     }
+
+    // The fourth particle of each group is only loaded if the expression uses it.
+
+    bool usesA4 = false, usesD4 = false;
+    for (auto* terms : {&distances, &angles, &dihedrals})
+        for (auto& term : *terms)
+            for (int atom : term.second) {
+                usesA4 |= (atom == 3);
+                usesD4 |= (atom == 7);
+            }
 
     // Next it needs to load parameters from global memory.
 
@@ -438,6 +440,10 @@ void CommonCalcCustomHbondForceKernel::initialize(const System& system, const Cu
         defines["USE_EXCLUSIONS"] = "1";
     if (useBoundingBoxes)
         defines["USE_BOUNDING_BOXES"] = "1";
+    if (usesA4)
+        defines["USE_A4"] = "1";
+    if (usesD4)
+        defines["USE_D4"] = "1";
     ComputeProgram program = cc.compileProgram(cc.replaceStrings(CommonKernelSources::customHbondForce, replacements), defines);
     blockBoundsKernel = program->createKernel("findBlockBounds");
     forceKernel = program->createKernel("computeHbondForces");

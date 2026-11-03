@@ -162,19 +162,19 @@ void ReferenceCustomHbondIxn::calculatePairIxn(vector<Vec3>& atomCoordinates, ve
 void ReferenceCustomHbondIxn::calculateOneIxn(int donor, int acceptor, vector<Vec3>& atomCoordinates,
                         map<string, double>& variables, vector<Vec3>& forces, double* totalEnergy) const {
 
-    int atoms[6];
-    atoms[0] = acceptorAtoms[acceptor][0];
-    atoms[1] = acceptorAtoms[acceptor][1];
-    atoms[2] = acceptorAtoms[acceptor][2];
-    atoms[3] = donorAtoms[donor][0];
-    atoms[4] = donorAtoms[donor][1];
-    atoms[5] = donorAtoms[donor][2];
+    // Particle indices are ordered as 0=a1, 1=a2, 2=a3, 3=a4, 4=d1, 5=d2, 6=d3, 7=d4.
+
+    int atoms[8];
+    for (int i = 0; i < 4; i++) {
+        atoms[i] = acceptorAtoms[acceptor][i];
+        atoms[i+4] = donorAtoms[donor][i];
+    }
 
     // Compute the distance between the primary donor and acceptor atoms, and compare to the cutoff.
 
     if (cutoff) {
         double delta[ReferenceForce::LastDeltaRIndex];
-        computeDelta(atoms[0], atoms[3], delta, atomCoordinates);
+        computeDelta(atoms[0], atoms[4], delta, atomCoordinates);
         if (delta[ReferenceForce::RIndex] >= cutoffDistance)
             return;
     }

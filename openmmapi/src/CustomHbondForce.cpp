@@ -136,7 +136,11 @@ void CustomHbondForce::setGlobalParameterDefaultValue(int index, double defaultV
 }
 
 int CustomHbondForce::addDonor(int d1, int d2, int d3, const vector<double>& parameters) {
-    donors.push_back(GroupInfo(d1, d2, d3, parameters));
+    return addDonor(d1, d2, d3, -1, parameters);
+}
+
+int CustomHbondForce::addDonor(int d1, int d2, int d3, int d4, const vector<double>& parameters) {
+    donors.push_back(GroupInfo(d1, d2, d3, d4, parameters));
     return donors.size()-1;
 }
 
@@ -148,16 +152,33 @@ void CustomHbondForce::getDonorParameters(int index, int& d1, int& d2, int&  d3,
     parameters = donors[index].parameters;
 }
 
+void CustomHbondForce::getDonorParticles(int index, int& d1, int& d2, int& d3, int& d4) const {
+    ASSERT_VALID_INDEX(index, donors);
+    d1 = donors[index].p1;
+    d2 = donors[index].p2;
+    d3 = donors[index].p3;
+    d4 = donors[index].p4;
+}
+
 void CustomHbondForce::setDonorParameters(int index, int d1, int d2, int d3, const vector<double>& parameters) {
+    setDonorParameters(index, d1, d2, d3, -1, parameters);
+}
+
+void CustomHbondForce::setDonorParameters(int index, int d1, int d2, int d3, int d4, const vector<double>& parameters) {
     ASSERT_VALID_INDEX(index, donors);
     donors[index].p1 = d1;
     donors[index].p2 = d2;
     donors[index].p3 = d3;
+    donors[index].p4 = d4;
     donors[index].parameters = parameters;
 }
 
 int CustomHbondForce::addAcceptor(int a1, int a2, int a3, const vector<double>& parameters) {
-    acceptors.push_back(GroupInfo(a1, a2, a3, parameters));
+    return addAcceptor(a1, a2, a3, -1, parameters);
+}
+
+int CustomHbondForce::addAcceptor(int a1, int a2, int a3, int a4, const vector<double>& parameters) {
+    acceptors.push_back(GroupInfo(a1, a2, a3, a4, parameters));
     return acceptors.size()-1;
 }
 
@@ -169,11 +190,24 @@ void CustomHbondForce::getAcceptorParameters(int index, int& a1, int& a2, int& a
     parameters = acceptors[index].parameters;
 }
 
+void CustomHbondForce::getAcceptorParticles(int index, int& a1, int& a2, int& a3, int& a4) const {
+    ASSERT_VALID_INDEX(index, acceptors);
+    a1 = acceptors[index].p1;
+    a2 = acceptors[index].p2;
+    a3 = acceptors[index].p3;
+    a4 = acceptors[index].p4;
+}
+
 void CustomHbondForce::setAcceptorParameters(int index, int a1, int a2, int a3, const vector<double>& parameters) {
+    setAcceptorParameters(index, a1, a2, a3, -1, parameters);
+}
+
+void CustomHbondForce::setAcceptorParameters(int index, int a1, int a2, int a3, int a4, const vector<double>& parameters) {
     ASSERT_VALID_INDEX(index, acceptors);
     acceptors[index].p1 = a1;
     acceptors[index].p2 = a2;
     acceptors[index].p3 = a3;
+    acceptors[index].p4 = a4;
     acceptors[index].parameters = parameters;
 }
 

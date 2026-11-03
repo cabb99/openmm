@@ -1983,20 +1983,18 @@ void ReferenceCalcCustomHbondForceKernel::initialize(const System& system, const
     donorParticles.resize(numDonors);
     donorParamArray.resize(numDonors);
     for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3;
+        int d1, d2, d3, d4;
         force.getDonorParameters(i, d1, d2, d3, donorParamArray[i]);
-        donorParticles[i].push_back(d1);
-        donorParticles[i].push_back(d2);
-        donorParticles[i].push_back(d3);
+        force.getDonorParticles(i, d1, d2, d3, d4);
+        donorParticles[i] = {d1, d2, d3, d4};
     }
     acceptorParticles.resize(numAcceptors);
     acceptorParamArray.resize(numAcceptors);
     for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3;
+        int a1, a2, a3, a4;
         force.getAcceptorParameters(i, a1, a2, a3, acceptorParamArray[i]);
-        acceptorParticles[i].push_back(a1);
-        acceptorParticles[i].push_back(a2);
-        acceptorParticles[i].push_back(a3);
+        force.getAcceptorParticles(i, a1, a2, a3, a4);
+        acceptorParticles[i] = {a1, a2, a3, a4};
     }
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         globalParameterNames.push_back(force.getGlobalParameterName(i));
@@ -2068,9 +2066,10 @@ void ReferenceCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl& c
     int numDonorParameters = force.getNumPerDonorParameters();
     const vector<vector<int> >& donorAtoms = ixn->getDonorAtoms();
     for (int i = 0; i < numDonors; ++i) {
-        int d1, d2, d3;
+        int d1, d2, d3, d4;
         force.getDonorParameters(i, d1, d2, d3, parameters);
-        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2])
+        force.getDonorParticles(i, d1, d2, d3, d4);
+        if (d1 != donorAtoms[i][0] || d2 != donorAtoms[i][1] || d3 != donorAtoms[i][2] || d4 != donorAtoms[i][3])
             throw OpenMMException("updateParametersInContext: The set of particles in a donor group has changed");
         for (int j = 0; j < numDonorParameters; j++)
             donorParamArray[i][j] = parameters[j];
@@ -2078,9 +2077,10 @@ void ReferenceCalcCustomHbondForceKernel::copyParametersToContext(ContextImpl& c
     int numAcceptorParameters = force.getNumPerAcceptorParameters();
     const vector<vector<int> >& acceptorAtoms = ixn->getAcceptorAtoms();
     for (int i = 0; i < numAcceptors; ++i) {
-        int a1, a2, a3;
+        int a1, a2, a3, a4;
         force.getAcceptorParameters(i, a1, a2, a3, parameters);
-        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2])
+        force.getAcceptorParticles(i, a1, a2, a3, a4);
+        if (a1 != acceptorAtoms[i][0] || a2 != acceptorAtoms[i][1] || a3 != acceptorAtoms[i][2] || a4 != acceptorAtoms[i][3])
             throw OpenMMException("updateParametersInContext: The set of particles in an acceptor group has changed");
         for (int j = 0; j < numAcceptorParameters; j++)
             acceptorParamArray[i][j] = parameters[j];

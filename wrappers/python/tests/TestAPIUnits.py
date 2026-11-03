@@ -695,6 +695,25 @@ class TestAPIUnits(unittest.TestCase):
         force.setNonbondedMethod(CustomHbondForce.CutoffPeriodic)
         self.assertTrue(force.usesPeriodicBoundaryConditions())
 
+        # Groups with a fourth particle
+
+        self.assertEqual(force.getAcceptorParticles(0), [0, 1, 2, -1])
+        self.assertEqual(force.getDonorParticles(1), [7, 8, -1, -1])
+        force.addAcceptor(9, 10, 11, 12, [3*angstroms,
+                                          10.0*kilocalories_per_mole/angstroms**2])
+        force.addDonor(13, 14, 15, 16, [90*degrees, 30])
+        self.assertEqual(force.getAcceptorParticles(2), [9, 10, 11, 12])
+        self.assertEqual(force.getDonorParticles(2), [13, 14, 15, 16])
+        i, j, k, (r0, ka) = force.getAcceptorParameters(2)
+        self.assertEqual((i, j, k), (9, 10, 11))
+        self.assertAlmostEqual(r0, 0.3)
+        self.assertAlmostEqual(ka, 10*4.184*100)
+        force.setDonorParameters(2, 17, 18, 19, 20, [math.pi, 30])
+        self.assertEqual(force.getDonorParticles(2), [17, 18, 19, 20])
+        force.setDonorParameters(2, 17, 18, 19, [math.pi, 30])
+        self.assertEqual(force.getDonorParticles(2), [17, 18, 19, -1])
+        self.assertEqual(CustomHbondForce('distance(d1,a1)').addDonor(0, 1, 2), 0)
+
     def testCustomNonbondedForce(self):
         """ Tests the CustomNonbondedForce API features """
         force = CustomNonbondedForce('4*diel*q1*q2/r+sqrt(p1*p2)/r^2-sqrt(m1*m2)/r^3')

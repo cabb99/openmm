@@ -65,7 +65,7 @@ public:
     /**
      * This is a utility routine that parses the energy expression, identifies the angles and dihedrals
      * in it, and replaces them with variables.  The particle indices returned in the maps are defined
-     * as follows: 0=a1, 1=a2, 2=a3, 3=d1, 4=d2, 5=d3.
+     * as follows: 0=a1, 1=a2, 2=a3, 3=a4, 4=d1, 5=d2, 6=d3, 7=d4.
      *
      * @param force     the CustomHbondForce to process
      * @param functions definitions of custom function that may appear in the expression
