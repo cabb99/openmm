@@ -44,13 +44,13 @@ namespace OpenMM {
 /**
  * This class supports a wide variety of energy functions used to represent hydrogen bonding.  It computes
  * interactions between "donor" particle groups and "acceptor" particle groups, where each group may include
- * up to three particles.  Typically a donor group consists of a hydrogen atom and the atoms it is bonded to,
+ * up to four particles.  Typically a donor group consists of a hydrogen atom and the atoms it is bonded to,
  * and an acceptor group consists of a negatively charged atom and the atoms it is bonded to.
  *
- * We refer to the particles in a donor group as d1, d2 and d3, and the particles in an acceptor group as
- * a1, a2, and a3.  For each donor and each acceptor, CustomHbondForce evaluates a user supplied algebraic
+ * We refer to the particles in a donor group as d1, d2, d3, and d4, and the particles in an acceptor group as
+ * a1, a2, a3, and a4.  For each donor and each acceptor, CustomHbondForce evaluates a user supplied algebraic
  * expression to determine the interaction energy.  The expression may depend on arbitrary distances, angles,
- * and dihedral angles defined by any of the six particles involved.  The function distance(p1, p2) is the distance
+ * and dihedral angles defined by any of the eight particles involved.  The function distance(p1, p2) is the distance
  * between the particles p1 and p2 (where "p1" and "p2" should be replaced by the names of the actual particles
  * to calculate the distance between), angle(p1, p2, p3) is the angle formed by the three specified particles,
  * and dihedral(p1, p2, p3, p4) is the dihedral angle formed by the four specified particles.
@@ -68,6 +68,9 @@ namespace OpenMM {
  * Next, call addDonor() and addAcceptor() to define donors and acceptors and specify their parameter values.
  * After a donor or acceptor has been added, you can modify its parameters by calling setDonorParameters() or
  * setAcceptorParameters().  This will have no effect on Contexts that already exist unless you call updateParametersInContext().
+ * Groups with up to three particles can be defined with the versions of these methods that take three particle
+ * indices.  To define a group with a fourth particle, use the versions that take four particle indices.  The
+ * particles in a group, including the fourth one, can be retrieved with getDonorParticles() and getAcceptorParticles().
  *
  * CustomHbondForce also lets you specify "exclusions", particular combinations of donors and acceptors whose
  * interactions should be omitted from force and energy calculations.  This is most often used for particles
@@ -296,6 +299,20 @@ public:
      */
     int addDonor(int d1, int d2, int d3, const std::vector<double>& parameters=std::vector<double>());
     /**
+     * Add a donor group with up to four particles to the force
+     *
+     * @param d1          the index of the first particle for this donor group
+     * @param d2          the index of the second particle for this donor group.  If the group only
+     *                    includes one particle, this must be -1.
+     * @param d3          the index of the third particle for this donor group.  If the group includes
+     *                    less than three particles, this must be -1.
+     * @param d4          the index of the fourth particle for this donor group.  If the group includes
+     *                    less than four particles, this must be -1.
+     * @param parameters  the list of per-donor parameter values for the new donor
+     * @return the index of the donor that was added
+     */
+    int addDonor(int d1, int d2, int d3, int d4, const std::vector<double>& parameters);
+    /**
      * Get the properties of a donor group.
      *
      * @param index            the index of the donor group to get
@@ -305,8 +322,24 @@ public:
      * @param[out] d3          the index of the third particle for this donor group.  If the group includes
      *                         less than three particles, this will be -1.
      * @param[out] parameters  the list of per-donor parameter values for the donor
+     *
+     * If the group includes a fourth particle, it is not returned by this method.  Call getDonorParticles()
+     * to retrieve all the particles in the group.
      */
     void getDonorParameters(int index, int& d1, int& d2, int& d3, std::vector<double>& parameters) const;
+    /**
+     * Get the particles in a donor group.
+     *
+     * @param index            the index of the donor group to get
+     * @param[out] d1          the index of the first particle for this donor group
+     * @param[out] d2          the index of the second particle for this donor group.  If the group only
+     *                         includes one particle, this will be -1.
+     * @param[out] d3          the index of the third particle for this donor group.  If the group includes
+     *                         less than three particles, this will be -1.
+     * @param[out] d4          the index of the fourth particle for this donor group.  If the group includes
+     *                         less than four particles, this will be -1.
+     */
+    void getDonorParticles(int index, int& d1, int& d2, int& d3, int& d4) const;
     /**
      * Set the properties of a donor group.
      *
@@ -317,8 +350,25 @@ public:
      * @param d3          the index of the third particle for this donor group.  If the group includes
      *                    less than three particles, this must be -1.
      * @param parameters  the list of per-donor parameter values for the donor
+     *
+     * After calling this method, the group includes at most three particles.  To specify a fourth
+     * particle, use the version of this method that takes four particle indices.
      */
     void setDonorParameters(int index, int d1, int d2, int d3, const std::vector<double>& parameters=std::vector<double>());
+    /**
+     * Set the properties of a donor group with up to four particles.
+     *
+     * @param index       the index of the donor group to set
+     * @param d1          the index of the first particle for this donor group
+     * @param d2          the index of the second particle for this donor group.  If the group only
+     *                    includes one particle, this must be -1.
+     * @param d3          the index of the third particle for this donor group.  If the group includes
+     *                    less than three particles, this must be -1.
+     * @param d4          the index of the fourth particle for this donor group.  If the group includes
+     *                    less than four particles, this must be -1.
+     * @param parameters  the list of per-donor parameter values for the donor
+     */
+    void setDonorParameters(int index, int d1, int d2, int d3, int d4, const std::vector<double>& parameters);
     /**
      * Add an acceptor group to the force
      *
@@ -332,6 +382,20 @@ public:
      */
     int addAcceptor(int a1, int a2, int a3, const std::vector<double>& parameters=std::vector<double>());
     /**
+     * Add an acceptor group with up to four particles to the force
+     *
+     * @param a1          the index of the first particle for this acceptor group
+     * @param a2          the index of the second particle for this acceptor group.  If the group only
+     *                    includes one particle, this must be -1.
+     * @param a3          the index of the third particle for this acceptor group.  If the group includes
+     *                    less than three particles, this must be -1.
+     * @param a4          the index of the fourth particle for this acceptor group.  If the group includes
+     *                    less than four particles, this must be -1.
+     * @param parameters  the list of per-acceptor parameter values for the new acceptor
+     * @return the index of the acceptor that was added
+     */
+    int addAcceptor(int a1, int a2, int a3, int a4, const std::vector<double>& parameters);
+    /**
      * Get the properties of an acceptor group.
      *
      * @param index            the index of the acceptor group to get
@@ -341,8 +405,24 @@ public:
      * @param[out] a3          the index of the third particle for this acceptor group.  If the group includes
      *                         less than three particles, this will be -1.
      * @param[out] parameters  the list of per-acceptor parameter values for the acceptor
+     *
+     * If the group includes a fourth particle, it is not returned by this method.  Call getAcceptorParticles()
+     * to retrieve all the particles in the group.
      */
     void getAcceptorParameters(int index, int& a1, int& a2, int& a3, std::vector<double>& parameters) const;
+    /**
+     * Get the particles in an acceptor group.
+     *
+     * @param index            the index of the acceptor group to get
+     * @param[out] a1          the index of the first particle for this acceptor group
+     * @param[out] a2          the index of the second particle for this acceptor group.  If the group only
+     *                         includes one particle, this will be -1.
+     * @param[out] a3          the index of the third particle for this acceptor group.  If the group includes
+     *                         less than three particles, this will be -1.
+     * @param[out] a4          the index of the fourth particle for this acceptor group.  If the group includes
+     *                         less than four particles, this will be -1.
+     */
+    void getAcceptorParticles(int index, int& a1, int& a2, int& a3, int& a4) const;
     /**
      * Set the properties of an acceptor group.
      *
@@ -353,8 +433,25 @@ public:
      * @param a3          the index of the third particle for this acceptor group.  If the group includes
      *                    less than three particles, this must be -1.
      * @param parameters  the list of per-acceptor parameter values for the acceptor
+     *
+     * After calling this method, the group includes at most three particles.  To specify a fourth
+     * particle, use the version of this method that takes four particle indices.
      */
     void setAcceptorParameters(int index, int a1, int a2, int a3, const std::vector<double>& parameters=std::vector<double>());
+    /**
+     * Set the properties of an acceptor group with up to four particles.
+     *
+     * @param index       the index of the acceptor group to set
+     * @param a1          the index of the first particle for this acceptor group
+     * @param a2          the index of the second particle for this acceptor group.  If the group only
+     *                    includes one particle, this must be -1.
+     * @param a3          the index of the third particle for this acceptor group.  If the group includes
+     *                    less than three particles, this must be -1.
+     * @param a4          the index of the fourth particle for this acceptor group.  If the group includes
+     *                    less than four particles, this must be -1.
+     * @param parameters  the list of per-acceptor parameter values for the acceptor
+     */
+    void setAcceptorParameters(int index, int a1, int a2, int a3, int a4, const std::vector<double>& parameters);
     /**
      * Add a donor-acceptor pair to the list of interactions that should be excluded.
      *
@@ -479,11 +576,11 @@ private:
 class CustomHbondForce::GroupInfo {
 public:
     std::vector<double> parameters;
-    int p1, p2, p3;
-    GroupInfo() : p1(-1), p2(-1), p3(-1) {
+    int p1, p2, p3, p4;
+    GroupInfo() : p1(-1), p2(-1), p3(-1), p4(-1) {
     }
-    GroupInfo(int p1, int p2, int p3, const std::vector<double>& parameters) :
-        parameters(parameters), p1(p1), p2(p2), p3(p3) {
+    GroupInfo(int p1, int p2, int p3, int p4, const std::vector<double>& parameters) :
+        parameters(parameters), p1(p1), p2(p2), p3(p3), p4(p4) {
     }
 };
 

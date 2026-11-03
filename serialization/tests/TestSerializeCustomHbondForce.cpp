@@ -61,6 +61,8 @@ void testSerialization() {
     params[0] = -1;
     params[1] = -1.1;
     force.addAcceptor(2, 3, -1, params);
+    force.addDonor(6, 7, 8, 9, {2.5});
+    force.addAcceptor(9, 8, 7, 6, {0.5, -0.5});
     force.addExclusion(0, 1);
     force.addExclusion(1, 2);
     vector<double> values(10);
@@ -95,26 +97,38 @@ void testSerialization() {
     }
     ASSERT_EQUAL(force.getNumDonors(), force2.getNumDonors());
     for (int i = 0; i < force.getNumDonors(); i++) {
-        int a1, b1, c1, a2, b2, c2;
+        int a1, b1, c1, d1, a2, b2, c2, d2;
         vector<double> params1, params2;
         force.getDonorParameters(i, a1, b1, c1, params1);
         force2.getDonorParameters(i, a2, b2, c2, params2);
         ASSERT_EQUAL(a1, a2);
         ASSERT_EQUAL(b1, b2);
         ASSERT_EQUAL(c1, c2);
+        force.getDonorParticles(i, a1, b1, c1, d1);
+        force2.getDonorParticles(i, a2, b2, c2, d2);
+        ASSERT_EQUAL(a1, a2);
+        ASSERT_EQUAL(b1, b2);
+        ASSERT_EQUAL(c1, c2);
+        ASSERT_EQUAL(d1, d2);
         ASSERT_EQUAL(params1.size(), params2.size());
         for (int j = 0; j < (int) params1.size(); j++)
             ASSERT_EQUAL(params1[j], params2[j]);
     }
     ASSERT_EQUAL(force.getNumAcceptors(), force2.getNumAcceptors());
     for (int i = 0; i < force.getNumAcceptors(); i++) {
-        int a1, b1, c1, a2, b2, c2;
+        int a1, b1, c1, d1, a2, b2, c2, d2;
         vector<double> params1, params2;
         force.getAcceptorParameters(i, a1, b1, c1, params1);
         force2.getAcceptorParameters(i, a2, b2, c2, params2);
         ASSERT_EQUAL(a1, a2);
         ASSERT_EQUAL(b1, b2);
         ASSERT_EQUAL(c1, c2);
+        force.getAcceptorParticles(i, a1, b1, c1, d1);
+        force2.getAcceptorParticles(i, a2, b2, c2, d2);
+        ASSERT_EQUAL(a1, a2);
+        ASSERT_EQUAL(b1, b2);
+        ASSERT_EQUAL(c1, c2);
+        ASSERT_EQUAL(d1, d2);
         ASSERT_EQUAL(params1.size(), params2.size());
         for (int j = 0; j < (int) params1.size(); j++)
             ASSERT_EQUAL(params1[j], params2[j]);
@@ -139,9 +153,42 @@ void testSerialization() {
     }
 }
 
+void testVersion1() {
+    // Files written by older versions of OpenMM (version 1) have no fourth particle.
+    // Make sure they can still be read.
+
+    CustomHbondForce force("distance(d1,a1)");
+    force.addDonor(0, 1, 2);
+    force.addAcceptor(3, 4, -1);
+    stringstream buffer;
+    XmlSerializer::serialize<CustomHbondForce>(&force, "Force", buffer);
+    string xml = buffer.str();
+    size_t pos = xml.find("version=\"2\"");
+    ASSERT(pos != string::npos);
+    xml.replace(pos, 11, "version=\"1\"");
+    for (pos = xml.find(" p4=\"-1\""); pos != string::npos; pos = xml.find(" p4=\"-1\""))
+        xml.erase(pos, 8);
+    ASSERT(xml.find("p4") == string::npos);
+    stringstream buffer2(xml);
+    CustomHbondForce* copy = XmlSerializer::deserialize<CustomHbondForce>(buffer2);
+    int p1, p2, p3, p4;
+    copy->getDonorParticles(0, p1, p2, p3, p4);
+    ASSERT_EQUAL(0, p1);
+    ASSERT_EQUAL(1, p2);
+    ASSERT_EQUAL(2, p3);
+    ASSERT_EQUAL(-1, p4);
+    copy->getAcceptorParticles(0, p1, p2, p3, p4);
+    ASSERT_EQUAL(3, p1);
+    ASSERT_EQUAL(4, p2);
+    ASSERT_EQUAL(-1, p3);
+    ASSERT_EQUAL(-1, p4);
+    delete copy;
+}
+
 int main() {
     try {
         testSerialization();
+        testVersion1();
     }
     catch(const exception& e) {
         cout << "exception: " << e.what() << endl;
