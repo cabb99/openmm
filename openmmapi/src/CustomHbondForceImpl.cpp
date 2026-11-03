@@ -49,7 +49,7 @@ using std::string;
 using std::stringstream;
 
 /**
- * This class serves as a placeholder for angles and dihedrals in expressions.
+ * This class serves as a placeholder for distances, angles, and dihedrals in expressions.
  */
 class CustomHbondForceImpl::FunctionPlaceholder : public CustomFunction {
 public:
@@ -178,15 +178,16 @@ map<string, double> CustomHbondForceImpl::getDefaultParameters() {
 }
 
 ParsedExpression CustomHbondForceImpl::prepareExpression(const CustomHbondForce& force, const map<string, CustomFunction*>& customFunctions, map<string, vector<int> >& distances,
-        map<string, vector<int> >& angles, map<string, vector<int> >& dihedrals) {
-    CustomHbondForceImpl::FunctionPlaceholder custom(1);
+        map<string, vector<int> >& angles, map<string, vector<int> >& dihedrals, map<string, vector<int> >& angle4s) {
     CustomHbondForceImpl::FunctionPlaceholder distance(2);
     CustomHbondForceImpl::FunctionPlaceholder angle(3);
     CustomHbondForceImpl::FunctionPlaceholder dihedral(4);
+    CustomHbondForceImpl::FunctionPlaceholder angle4(4);
     map<string, CustomFunction*> functions = customFunctions;
     functions["distance"] = &distance;
     functions["angle"] = &angle;
     functions["dihedral"] = &dihedral;
+    functions["angle4"] = &angle4;
     ParsedExpression expression = Lepton::Parser::parse(force.getEnergyFunction(), functions);
     map<string, int> atoms;
     atoms["a1"] = 0;
@@ -204,21 +205,22 @@ ParsedExpression CustomHbondForceImpl::prepareExpression(const CustomHbondForce&
         variables.insert(force.getPerAcceptorParameterName(i));
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         variables.insert(force.getGlobalParameterName(i));
-    return ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, variables)).optimize();
+    return ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, angle4s, variables)).optimize();
 }
 
 ExpressionTreeNode CustomHbondForceImpl::replaceFunctions(const ExpressionTreeNode& node, map<string, int> atoms,
-        map<string, vector<int> >& distances, map<string, vector<int> >& angles, map<string, vector<int> >& dihedrals, set<string>& variables) {
+        map<string, vector<int> >& distances, map<string, vector<int> >& angles, map<string, vector<int> >& dihedrals,
+        map<string, vector<int> >& angle4s, set<string>& variables) {
     const Operation& op = node.getOperation();
     if (op.getId() == Operation::VARIABLE && variables.find(op.getName()) == variables.end())
         throw OpenMMException("CustomHBondForce: Unknown variable '"+op.getName()+"'");
-    if (op.getId() != Operation::CUSTOM || (op.getName() != "distance" && op.getName() != "angle" && op.getName() != "dihedral"))
+    if (op.getId() != Operation::CUSTOM || (op.getName() != "distance" && op.getName() != "angle" && op.getName() != "dihedral" && op.getName() != "angle4"))
     {
-        // This is not a distance, angle, or dihedral, so process its children.
+        // This is not a distance, angle, dihedral, or angle4, so process its children.
 
         vector<ExpressionTreeNode> children;
         for (auto& child : node.getChildren())
-            children.push_back(replaceFunctions(child, atoms, distances, angles, dihedrals, variables));
+            children.push_back(replaceFunctions(child, atoms, distances, angles, dihedrals, angle4s, variables));
         return ExpressionTreeNode(op.clone(), children);
     }
     const Operation::Custom& custom = static_cast<const Operation::Custom&>(op);
@@ -234,24 +236,22 @@ ExpressionTreeNode CustomHbondForceImpl::replaceFunctions(const ExpressionTreeNo
         indices[i] = iter->second;
     }
     
-    // Select a name for the variable and add it to the appropriate map.
-    
+    // Select a name for the variable and add it to the appropriate map.  dihedral() and angle4() both
+    // take four arguments, so the map is selected based on the function name.
+
     stringstream variable;
-    if (numArgs == 2)
-        variable << "distance";
-    else if (numArgs == 3)
-        variable << "angle";
-    else
-        variable << "dihedral";
+    variable << op.getName();
     for (int i = 0; i < numArgs; i++)
         variable << indices[i];
     string name = variable.str();
-    if (numArgs == 2)
+    if (op.getName() == "distance")
         distances[name] = indices;
-    else if (numArgs == 3)
+    else if (op.getName() == "angle")
         angles[name] = indices;
-    else
+    else if (op.getName() == "dihedral")
         dihedrals[name] = indices;
+    else
+        angle4s[name] = indices;
     
     // Return a new node that represents it as a simple variable.
     

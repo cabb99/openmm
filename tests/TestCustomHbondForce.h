@@ -29,6 +29,7 @@
 
 #include "openmm/internal/AssertionUtilities.h"
 #include "openmm/Context.h"
+#include "openmm/CustomCompoundBondForce.h"
 #include "openmm/CustomHbondForce.h"
 #include "openmm/HarmonicAngleForce.h"
 #include "openmm/HarmonicBondForce.h"
@@ -511,6 +512,146 @@ void testFourParticleGroupsPeriodic() {
     ASSERT_EQUAL_TOL(s1.getPotentialEnergy(), s2.getPotentialEnergy(), TOL);
 }
 
+void testAngle4MatchesAngle() {
+    // angle4(p2, p1, p2, p3) should be identical to angle(p1, p2, p3).
+
+    const int numParticles = 6;
+    System system1, system2;
+    for (int i = 0; i < numParticles; i++) {
+        system1.addParticle(1.0);
+        system2.addParticle(1.0);
+    }
+    CustomHbondForce* force1 = new CustomHbondForce("k*(angle(d2,d1,a1)-theta0)^2 + cos(angle(a2,a1,d1))");
+    CustomHbondForce* force2 = new CustomHbondForce("k*(angle4(d1,d2,d1,a1)-theta0)^2 + cos(angle4(a1,a2,a1,d1))");
+    for (CustomHbondForce* force : {force1, force2}) {
+        force->addGlobalParameter("k", 1.3);
+        force->addGlobalParameter("theta0", 1.8);
+        force->addDonor(0, 1, 2);
+        force->addAcceptor(3, 4, 5);
+    }
+    system1.addForce(force1);
+    system2.addForce(force2);
+    OpenMM_SFMT::SFMT sfmt;
+    init_gen_rand(0, sfmt);
+    vector<Vec3> positions(numParticles);
+    VerletIntegrator integrator1(0.01);
+    VerletIntegrator integrator2(0.01);
+    Context c1(system1, integrator1, platform);
+    Context c2(system2, integrator2, platform);
+    for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < numParticles; j++)
+            positions[j] = Vec3(2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt));
+        c1.setPositions(positions);
+        c2.setPositions(positions);
+        State s1 = c1.getState(State::Forces | State::Energy);
+        State s2 = c2.getState(State::Forces | State::Energy);
+        for (int j = 0; j < numParticles; j++)
+            ASSERT_EQUAL_VEC(s1.getForces()[j], s2.getForces()[j], TOL);
+        ASSERT_EQUAL_TOL(s1.getPotentialEnergy(), s2.getPotentialEnergy(), TOL);
+    }
+}
+
+void testAngle4() {
+    // Compare angle4() to an equivalent CustomCompoundBondForce that computes the same angles with pointangle().
+    // Particles 0-3 are d1-d4, and particles 4-7 are a1-a4.
+
+    const int numParticles = 8;
+    System hbondSystem, compoundSystem;
+    for (int i = 0; i < numParticles; i++) {
+        hbondSystem.addParticle(1.0);
+        compoundSystem.addParticle(1.0);
+    }
+    CustomHbondForce* hbond = new CustomHbondForce("k*(angle4(d1,d2,a1,a2)-theta0)^2 + sin(angle4(d1,a1,d4,a4)) + 0.5*angle4(a3,d3,d2,a2)^2");
+    hbond->addPerDonorParameter("k");
+    hbond->addPerAcceptorParameter("theta0");
+    hbond->addDonor(0, 1, 2, 3, {1.3});
+    hbond->addAcceptor(4, 5, 6, 7, {0.9});
+    hbondSystem.addForce(hbond);
+    CustomCompoundBondForce* compound = new CustomCompoundBondForce(8,
+            "k*(pointangle(x2-x1, y2-y1, z2-z1, 0, 0, 0, x6-x5, y6-y5, z6-z5)-theta0)^2 + "
+            "sin(pointangle(x5-x1, y5-y1, z5-z1, 0, 0, 0, x8-x4, y8-y4, z8-z4)) + "
+            "0.5*pointangle(x3-x7, y3-y7, z3-z7, 0, 0, 0, x6-x2, y6-y2, z6-z2)^2");
+    compound->addPerBondParameter("k");
+    compound->addPerBondParameter("theta0");
+    compound->addBond({0, 1, 2, 3, 4, 5, 6, 7}, {1.3, 0.9});
+    compoundSystem.addForce(compound);
+    OpenMM_SFMT::SFMT sfmt;
+    init_gen_rand(0, sfmt);
+    vector<Vec3> positions(numParticles);
+    VerletIntegrator integrator1(0.01);
+    VerletIntegrator integrator2(0.01);
+    Context c1(hbondSystem, integrator1, platform);
+    Context c2(compoundSystem, integrator2, platform);
+    for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < numParticles; j++)
+            positions[j] = Vec3(2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt), 2.0*genrand_real2(sfmt));
+        c1.setPositions(positions);
+        c2.setPositions(positions);
+        State s1 = c1.getState(State::Forces | State::Energy);
+        State s2 = c2.getState(State::Forces | State::Energy);
+        for (int j = 0; j < numParticles; j++)
+            ASSERT_EQUAL_VEC(s2.getForces()[j], s1.getForces()[j], TOL);
+        ASSERT_EQUAL_TOL(s2.getPotentialEnergy(), s1.getPotentialEnergy(), TOL);
+    }
+
+    // Take a small step in the direction of the energy gradient and see whether the potential energy changes by the expected amount.
+
+    c1.setPositions(positions);
+    State state = c1.getState(State::Forces | State::Energy);
+    double norm = 0.0;
+    for (const Vec3& f : state.getForces())
+        norm += f.dot(f);
+    norm = sqrt(norm);
+    const double stepSize = 1e-3;
+    double step = 0.5*stepSize/norm;
+    vector<Vec3> positions2(numParticles), positions3(numParticles);
+    for (int j = 0; j < numParticles; j++) {
+        Vec3 f = state.getForces()[j];
+        positions2[j] = positions[j]-f*step;
+        positions3[j] = positions[j]+f*step;
+    }
+    c1.setPositions(positions2);
+    double energy2 = c1.getState(State::Energy).getPotentialEnergy();
+    c1.setPositions(positions3);
+    double energy3 = c1.getState(State::Energy).getPotentialEnergy();
+    ASSERT_EQUAL_TOL(norm, (energy2-energy3)/stepSize, 1e-3);
+}
+
+void testAngle4Periodic() {
+    // Put particles in different periodic copies of a triclinic box and make sure the result is unchanged.
+
+    const int numParticles = 8;
+    Vec3 a(5, 0, 0), b(1, 5, 0), c(-1, 1.5, 5);
+    System system;
+    system.setDefaultPeriodicBoxVectors(a, b, c);
+    for (int i = 0; i < numParticles; i++)
+        system.addParticle(1.0);
+    CustomHbondForce* custom = new CustomHbondForce("angle4(d1,d2,a1,a2) + 2*cos(angle4(d1,a1,d4,a4)) + angle4(d3,a3,d2,a2)^2");
+    custom->setNonbondedMethod(CustomHbondForce::CutoffPeriodic);
+    custom->setCutoffDistance(2.0);
+    custom->addDonor(0, 1, 2, 3, {});
+    custom->addAcceptor(4, 5, 6, 7, {});
+    system.addForce(custom);
+    OpenMM_SFMT::SFMT sfmt;
+    init_gen_rand(0, sfmt);
+    vector<Vec3> positions(numParticles);
+    for (int j = 0; j < numParticles; j++)
+        positions[j] = Vec3(genrand_real2(sfmt), genrand_real2(sfmt), genrand_real2(sfmt));
+    VerletIntegrator integrator(0.01);
+    Context context(system, integrator, platform);
+    context.setPositions(positions);
+    State s1 = context.getState(State::Forces | State::Energy);
+    positions[1] += b*2;
+    positions[3] += a-b;
+    positions[4] -= c;
+    positions[7] += a+c;
+    context.setPositions(positions);
+    State s2 = context.getState(State::Forces | State::Energy);
+    for (int j = 0; j < numParticles; j++)
+        ASSERT_EQUAL_VEC(s1.getForces()[j], s2.getForces()[j], TOL);
+    ASSERT_EQUAL_TOL(s1.getPotentialEnergy(), s2.getPotentialEnergy(), TOL);
+}
+
 void runPlatformTests();
 
 int main(int argc, char* argv[]) {
@@ -528,6 +669,9 @@ int main(int argc, char* argv[]) {
         testLargeSystem(CustomHbondForce::CutoffPeriodic);
         testFourParticleGroups();
         testFourParticleGroupsPeriodic();
+        testAngle4MatchesAngle();
+        testAngle4();
+        testAngle4Periodic();
         runPlatformTests();
     }
     catch(const exception& e) {

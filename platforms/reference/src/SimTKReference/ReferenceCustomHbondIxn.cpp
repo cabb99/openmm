@@ -46,7 +46,8 @@ using namespace OpenMM;
 
 ReferenceCustomHbondIxn::ReferenceCustomHbondIxn(const vector<vector<int> >& donorAtoms, const vector<vector<int> >& acceptorAtoms,
             const Lepton::ParsedExpression& energyExpression, const vector<string>& donorParameterNames, const vector<string>& acceptorParameterNames,
-            const map<string, vector<int> >& distances, const map<string, vector<int> >& angles, const map<string, vector<int> >& dihedrals) :
+            const map<string, vector<int> >& distances, const map<string, vector<int> >& angles, const map<string, vector<int> >& dihedrals,
+            const map<string, vector<int> >& angle4s) :
             cutoff(false), periodic(false), donorAtoms(donorAtoms), acceptorAtoms(acceptorAtoms), energyExpression(energyExpression.createProgram()),
             donorParamNames(donorParameterNames), acceptorParamNames(acceptorParameterNames) {
     for (auto& term : distances)
@@ -55,6 +56,8 @@ ReferenceCustomHbondIxn::ReferenceCustomHbondIxn(const vector<vector<int> >& don
         angleTerms.push_back(ReferenceCustomHbondIxn::AngleTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
     for (auto& term : dihedrals)
         dihedralTerms.push_back(ReferenceCustomHbondIxn::DihedralTermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
+    for (auto& term : angle4s)
+        angle4Terms.push_back(ReferenceCustomHbondIxn::Angle4TermInfo(term.first, term.second, energyExpression.differentiate(term.first).optimize().createProgram()));
 }
 
 /**---------------------------------------------------------------------------------------
@@ -201,6 +204,14 @@ void ReferenceCustomHbondIxn::calculateOneIxn(int donor, int acceptor, vector<Ve
         double* crossProduct[] = {term.cross1, term.cross2};
         variables[term.name] = getDihedralAngleBetweenThreeVectors(term.delta1, term.delta2, term.delta3, crossProduct, &dotDihedral, term.delta1, &signOfDihedral, 1);
     }
+    for (int i = 0; i < (int) angle4Terms.size(); i++) {
+        // The angle between the vector from p1 to p2 and the vector from p3 to p4.
+
+        const Angle4TermInfo& term = angle4Terms[i];
+        computeDelta(atoms[term.p1], atoms[term.p2], term.delta1, atomCoordinates);
+        computeDelta(atoms[term.p3], atoms[term.p4], term.delta2, atomCoordinates);
+        variables[term.name] = computeAngle(term.delta1, term.delta2);
+    }
 
     // Apply forces based on distances.
 
@@ -238,6 +249,34 @@ void ReferenceCustomHbondIxn::calculateOneIxn(int donor, int acceptor, vector<Ve
             forces[atoms[term.p1]][i] += deltaCrossP[0][i];
             forces[atoms[term.p2]][i] += deltaCrossP[1][i];
             forces[atoms[term.p3]][i] += deltaCrossP[2][i];
+        }
+    }
+
+    // Apply forces based on four particle angles.  This is the same calculation as for regular
+    // angles, except that the two vectors do not share a particle.
+
+    for (int i = 0; i < (int) angle4Terms.size(); i++) {
+        const Angle4TermInfo& term = angle4Terms[i];
+        double dEdTheta = term.forceExpression.evaluate(variables);
+        double thetaCross[ReferenceForce::LastDeltaRIndex];
+        SimTKOpenMMUtilities::crossProductVector3(term.delta1, term.delta2, thetaCross);
+        double lengthThetaCross = sqrt(DOT3(thetaCross, thetaCross));
+        if (lengthThetaCross < 1.0e-06)
+            lengthThetaCross = 1.0e-06;
+        double termA = dEdTheta/(term.delta1[ReferenceForce::R2Index]*lengthThetaCross);
+        double termC = -dEdTheta/(term.delta2[ReferenceForce::R2Index]*lengthThetaCross);
+        double deltaCrossP[2][3];
+        SimTKOpenMMUtilities::crossProductVector3(term.delta1, thetaCross, deltaCrossP[0]);
+        SimTKOpenMMUtilities::crossProductVector3(term.delta2, thetaCross, deltaCrossP[1]);
+        for (int i = 0; i < 3; i++) {
+            deltaCrossP[0][i] *= termA;
+            deltaCrossP[1][i] *= termC;
+        }
+        for (int i = 0; i < 3; i++) {
+            forces[atoms[term.p1]][i] += deltaCrossP[0][i];
+            forces[atoms[term.p2]][i] -= deltaCrossP[0][i];
+            forces[atoms[term.p3]][i] += deltaCrossP[1][i];
+            forces[atoms[term.p4]][i] -= deltaCrossP[1][i];
         }
     }
 
