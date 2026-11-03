@@ -386,7 +386,11 @@ angle variable is defined by three particles, and equals the angle between them.
 A dihedral variable is defined by four particles, and equals the angle between
 the first and last particles about the axis formed by the middle two particles.
 It is equal to zero when the first and last particles are on the same side of
-the axis.
+the axis.  A four particle angle variable, written :code:`angle4(p1, p2, p3, p4)`,
+equals the angle between the vector from the first particle to the second and
+the vector from the third particle to the fourth.  It can be used, for example,
+to compute the angle between a bond in the donor group and a bond in the
+acceptor group.
 
 In addition to depending on distances, angles, and dihedrals, the energy may
 also depend on an arbitrary set of user defined parameters.  Parameters may be

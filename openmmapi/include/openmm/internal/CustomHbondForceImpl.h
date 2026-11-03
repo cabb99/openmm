@@ -63,9 +63,9 @@ public:
     std::vector<std::string> getKernelNames();
     void updateParametersInContext(ContextImpl& context);
     /**
-     * This is a utility routine that parses the energy expression, identifies the angles and dihedrals
-     * in it, and replaces them with variables.  The particle indices returned in the maps are defined
-     * as follows: 0=a1, 1=a2, 2=a3, 3=d1, 4=d2, 5=d3.
+     * This is a utility routine that parses the energy expression, identifies the distances, angles,
+     * dihedrals, and angle4s in it, and replaces them with variables.  The particle indices returned in
+     * the maps are defined as follows: 0=a1, 1=a2, 2=a3, 3=d1, 4=d2, 5=d3.
      *
      * @param force     the CustomHbondForce to process
      * @param functions definitions of custom function that may appear in the expression
@@ -75,15 +75,18 @@ public:
      *                  of the corresponding variable, and the value is the list of particle indices.
      * @param dihedrals on exit, this will contain an entry for each dihedral used in the expression.  The key is the name
      *                  of the corresponding variable, and the value is the list of particle indices.
+     * @param angle4s   on exit, this will contain an entry for each angle4() (the angle between two vectors, each defined
+     *                  by two particles) used in the expression.  The key is the name of the corresponding variable, and
+     *                  the value is the list of particle indices.
      * @return a Parsed expression for the energy
      */
     static Lepton::ParsedExpression prepareExpression(const CustomHbondForce& force, const std::map<std::string, Lepton::CustomFunction*>& functions, std::map<std::string, std::vector<int> >& distances,
-            std::map<std::string, std::vector<int> >& angles, std::map<std::string, std::vector<int> >& dihedrals);
+            std::map<std::string, std::vector<int> >& angles, std::map<std::string, std::vector<int> >& dihedrals, std::map<std::string, std::vector<int> >& angle4s);
 private:
     class FunctionPlaceholder;
     static Lepton::ExpressionTreeNode replaceFunctions(const Lepton::ExpressionTreeNode& node, std::map<std::string, int> atoms,
             std::map<std::string, std::vector<int> >& distances, std::map<std::string, std::vector<int> >& angles,
-            std::map<std::string, std::vector<int> >& dihedrals, std::set<std::string>& variables);
+            std::map<std::string, std::vector<int> >& dihedrals, std::map<std::string, std::vector<int> >& angle4s, std::set<std::string>& variables);
     const CustomHbondForce& owner;
     Kernel kernel;
 };
