@@ -53,7 +53,10 @@ namespace OpenMM {
  * and dihedral angles defined by any of the six particles involved.  The function distance(p1, p2) is the distance
  * between the particles p1 and p2 (where "p1" and "p2" should be replaced by the names of the actual particles
  * to calculate the distance between), angle(p1, p2, p3) is the angle formed by the three specified particles,
- * and dihedral(p1, p2, p3, p4) is the dihedral angle formed by the four specified particles.
+ * and dihedral(p1, p2, p3, p4) is the dihedral angle formed by the four specified particles.  The function
+ * angle4(p1, p2, p3, p4) is the angle between the vector from p1 to p2 and the vector from p3 to p4.  It is in
+ * the range [0, pi].  For example, angle4(d1, d2, a1, a2) is the angle between the d1-d2 and a1-a2 bonds.  Note
+ * that angle(p1, p2, p3) is identical to angle4(p2, p1, p2, p3).
  *
  * The expression also may involve tabulated functions, and may depend on arbitrary
  * global, per-donor, and per-acceptor parameters.  It also optionally supports periodic boundary conditions
@@ -134,8 +137,8 @@ public:
      * Create a CustomHbondForce.
      *
      * @param energy    an algebraic expression giving the interaction energy between a donor and an acceptor as a function
-     *                  of inter-particle distances, angles, and dihedrals, as well as any global, per-donor, and
-     *                  per-acceptor parameters
+     *                  of inter-particle distances, angles (including angles between two vectors defined by angle4()),
+     *                  and dihedrals, as well as any global, per-donor, and per-acceptor parameters
      */
     explicit CustomHbondForce(const std::string& energy);
     ~CustomHbondForce();
