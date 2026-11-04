@@ -40,7 +40,7 @@ CustomHbondForceProxy::CustomHbondForceProxy() : SerializationProxy("CustomHbond
 }
 
 void CustomHbondForceProxy::serialize(const void* object, SerializationNode& node) const {
-    node.setIntProperty("version", 1);
+    node.setIntProperty("version", 2);
     const CustomHbondForce& force = *reinterpret_cast<const CustomHbondForce*>(object);
     node.setIntProperty("forceGroup", force.getForceGroup());
     node.setStringProperty("name", force.getName());
@@ -61,10 +61,11 @@ void CustomHbondForceProxy::serialize(const void* object, SerializationNode& nod
     }
     SerializationNode& donors = node.createChildNode("Donors");
     for (int i = 0; i < force.getNumDonors(); i++) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> params;
         force.getDonorParameters(i, p1, p2, p3, params);
-        SerializationNode& donor = donors.createChildNode("Donor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
+        force.getDonorParticles(i, p1, p2, p3, p4);
+        SerializationNode& donor = donors.createChildNode("Donor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3).setIntProperty("p4", p4);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
             key << "param";
@@ -74,10 +75,11 @@ void CustomHbondForceProxy::serialize(const void* object, SerializationNode& nod
     }
     SerializationNode& acceptors = node.createChildNode("Acceptors");
     for (int i = 0; i < force.getNumAcceptors(); i++) {
-        int p1, p2, p3;
+        int p1, p2, p3, p4;
         vector<double> params;
         force.getAcceptorParameters(i, p1, p2, p3, params);
-        SerializationNode& acceptor = acceptors.createChildNode("Acceptor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3);
+        force.getAcceptorParticles(i, p1, p2, p3, p4);
+        SerializationNode& acceptor = acceptors.createChildNode("Acceptor").setIntProperty("p1", p1).setIntProperty("p2", p2).setIntProperty("p3", p3).setIntProperty("p4", p4);
         for (int j = 0; j < (int) params.size(); j++) {
             stringstream key;
             key << "param";
@@ -97,11 +99,12 @@ void CustomHbondForceProxy::serialize(const void* object, SerializationNode& nod
 }
 
 void* CustomHbondForceProxy::deserialize(const SerializationNode& node) const {
-    if (node.getIntProperty("version") != 1)
+    int version = node.getIntProperty("version");
+    if (version < 1 || version > 2)
         throw OpenMMException("Unsupported version number");
     CustomHbondForce* force = NULL;
     try {
-        CustomHbondForce* force = new CustomHbondForce(node.getStringProperty("energy"));
+        force = new CustomHbondForce(node.getStringProperty("energy"));
         force->setForceGroup(node.getIntProperty("forceGroup", 0));
         force->setName(node.getStringProperty("name", force->getName()));
         force->setNonbondedMethod((CustomHbondForce::NonbondedMethod) node.getIntProperty("method"));
@@ -124,7 +127,7 @@ void* CustomHbondForceProxy::deserialize(const SerializationNode& node) const {
                 key << j+1;
                 params[j] = donor.getDoubleProperty(key.str());
             }
-            force->addDonor(donor.getIntProperty("p1"), donor.getIntProperty("p2"), donor.getIntProperty("p3"), params);
+            force->addDonor(donor.getIntProperty("p1"), donor.getIntProperty("p2"), donor.getIntProperty("p3"), donor.getIntProperty("p4", -1), params);
         }
         const SerializationNode& acceptors = node.getChildNode("Acceptors");
         params.resize(force->getNumPerAcceptorParameters());
@@ -135,7 +138,7 @@ void* CustomHbondForceProxy::deserialize(const SerializationNode& node) const {
                 key << j+1;
                 params[j] = acceptor.getDoubleProperty(key.str());
             }
-            force->addAcceptor(acceptor.getIntProperty("p1"), acceptor.getIntProperty("p2"), acceptor.getIntProperty("p3"), params);
+            force->addAcceptor(acceptor.getIntProperty("p1"), acceptor.getIntProperty("p2"), acceptor.getIntProperty("p3"), acceptor.getIntProperty("p4", -1), params);
         }
         const SerializationNode& exclusions = node.getChildNode("Exclusions");
         for (auto& exclusion : exclusions.getChildren())

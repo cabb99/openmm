@@ -96,6 +96,9 @@ inline DEVICE void applyForce(int atom, real3 f, GLOBAL mm_ulong* force) {
 typedef struct {
     real3 pos1, pos2, pos3;
     real3 f1, f2, f3;
+#ifdef USE_A4
+    real3 pos4, f4;
+#endif
 } AcceptorData;
 
 /**
@@ -139,6 +142,10 @@ KERNEL void computeHbondForces(
         real3 f1 = make_real3(0);
         real3 f2 = make_real3(0);
         real3 f3 = make_real3(0);
+#ifdef USE_D4
+        real3 f4 = make_real3(0);
+        real3 d4;
+#endif
         int donorIndex = donorBlock*32 + indexInWarp;
         int4 atoms, exclusionIndices;
         real3 d1, d2, d3;
@@ -147,6 +154,9 @@ KERNEL void computeHbondForces(
             d1 = (atoms.x > -1 ? trimTo3(posq[atoms.x]) : make_real3(0));
             d2 = (atoms.y > -1 ? trimTo3(posq[atoms.y]) : make_real3(0));
             d3 = (atoms.z > -1 ? trimTo3(posq[atoms.z]) : make_real3(0));
+#ifdef USE_D4
+            d4 = (atoms.w > -1 ? trimTo3(posq[atoms.w]) : make_real3(0));
+#endif
 #ifdef USE_EXCLUSIONS
             exclusionIndices = exclusions[donorIndex];
 #endif
@@ -160,6 +170,9 @@ KERNEL void computeHbondForces(
         localData[LOCAL_ID].f1 = make_real3(0);
         localData[LOCAL_ID].f2 = make_real3(0);
         localData[LOCAL_ID].f3 = make_real3(0);
+#ifdef USE_A4
+        localData[LOCAL_ID].f4 = make_real3(0);
+#endif
         int acceptorStart = acceptorBlock*32;
         int blockSize = min(32, NUM_ACCEPTORS-acceptorStart);
         int4 atoms2 = (indexInWarp < blockSize ? acceptorAtoms[acceptorStart+indexInWarp] : make_int4(-1));
@@ -167,6 +180,9 @@ KERNEL void computeHbondForces(
             localData[LOCAL_ID].pos1 = (atoms2.x > -1 ? trimTo3(posq[atoms2.x]) : make_real3(0));
             localData[LOCAL_ID].pos2 = (atoms2.y > -1 ? trimTo3(posq[atoms2.y]) : make_real3(0));
             localData[LOCAL_ID].pos3 = (atoms2.z > -1 ? trimTo3(posq[atoms2.z]) : make_real3(0));
+#ifdef USE_A4
+            localData[LOCAL_ID].pos4 = (atoms2.w > -1 ? trimTo3(posq[atoms2.w]) : make_real3(0));
+#endif
         }
         SYNC_WARPS;
         if (donorIndex < NUM_DONORS) {
@@ -183,6 +199,9 @@ KERNEL void computeHbondForces(
                     real3 a1 = localData[tbx+index].pos1;
                     real3 a2 = localData[tbx+index].pos2;
                     real3 a3 = localData[tbx+index].pos3;
+#ifdef USE_A4
+                    real3 a4 = localData[tbx+index].pos4;
+#endif
                     real4 deltaD1A1 = delta(d1, a1, periodicBoxSize, invPeriodicBoxSize, periodicBoxVecX, periodicBoxVecY, periodicBoxVecZ);
 #ifdef USE_CUTOFF
                     if (deltaD1A1.w < CUTOFF_SQUARED) {
@@ -202,11 +221,17 @@ KERNEL void computeHbondForces(
             applyForce(atoms.x, f1, force);
             applyForce(atoms.y, f2, force);
             applyForce(atoms.z, f3, force);
+#ifdef USE_D4
+            applyForce(atoms.w, f4, force);
+#endif
         }
         SYNC_WARPS;
         applyForce(atoms2.x, localData[LOCAL_ID].f1, force);
         applyForce(atoms2.y, localData[LOCAL_ID].f2, force);
         applyForce(atoms2.z, localData[LOCAL_ID].f3, force);
+#ifdef USE_A4
+        applyForce(atoms2.w, localData[LOCAL_ID].f4, force);
+#endif
     }
     energyBuffer[GLOBAL_ID] += energy;
 }

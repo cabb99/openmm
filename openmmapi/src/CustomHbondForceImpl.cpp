@@ -87,25 +87,16 @@ void CustomHbondForceImpl::initialize(ContextImpl& context) {
     vector<double> parameters;
     int numDonorParameters = owner.getNumPerDonorParameters();
     for (int i = 0; i < owner.getNumDonors(); i++) {
-        int d1, d2, d3;
-        owner.getDonorParameters(i, d1, d2, d3, parameters);
-        if (d1 < 0 || d1 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for a donor: ";
-            msg << d1;
-            throw OpenMMException(msg.str());
-        }
-        if (d2 < -1 || d2 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for a donor: ";
-            msg << d2;
-            throw OpenMMException(msg.str());
-        }
-        if (d3 < -1 || d3 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for a donor: ";
-            msg << d3;
-            throw OpenMMException(msg.str());
+        int d[4];
+        owner.getDonorParameters(i, d[0], d[1], d[2], parameters);
+        owner.getDonorParticles(i, d[0], d[1], d[2], d[3]);
+        for (int j = 0; j < 4; j++) {
+            if (d[j] < (j == 0 ? 0 : -1) || d[j] >= system.getNumParticles()) {
+                stringstream msg;
+                msg << "CustomHbondForce: Illegal particle index for a donor: ";
+                msg << d[j];
+                throw OpenMMException(msg.str());
+            }
         }
         if (parameters.size() != numDonorParameters) {
             stringstream msg;
@@ -116,25 +107,16 @@ void CustomHbondForceImpl::initialize(ContextImpl& context) {
     }
     int numAcceptorParameters = owner.getNumPerAcceptorParameters();
     for (int i = 0; i < owner.getNumAcceptors(); i++) {
-        int a1, a2, a3;
-        owner.getAcceptorParameters(i, a1, a2, a3, parameters);
-        if (a1 < 0 || a1 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for an acceptor: ";
-            msg << a1;
-            throw OpenMMException(msg.str());
-        }
-        if (a2 < -1 || a2 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for an acceptor: ";
-            msg << a2;
-            throw OpenMMException(msg.str());
-        }
-        if (a3 < -1 || a3 >= system.getNumParticles()) {
-            stringstream msg;
-            msg << "CustomHbondForce: Illegal particle index for an acceptor: ";
-            msg << a3;
-            throw OpenMMException(msg.str());
+        int a[4];
+        owner.getAcceptorParameters(i, a[0], a[1], a[2], parameters);
+        owner.getAcceptorParticles(i, a[0], a[1], a[2], a[3]);
+        for (int j = 0; j < 4; j++) {
+            if (a[j] < (j == 0 ? 0 : -1) || a[j] >= system.getNumParticles()) {
+                stringstream msg;
+                msg << "CustomHbondForce: Illegal particle index for an acceptor: ";
+                msg << a[j];
+                throw OpenMMException(msg.str());
+            }
         }
         if (parameters.size() != numAcceptorParameters) {
             stringstream msg;
@@ -210,9 +192,11 @@ ParsedExpression CustomHbondForceImpl::prepareExpression(const CustomHbondForce&
     atoms["a1"] = 0;
     atoms["a2"] = 1;
     atoms["a3"] = 2;
-    atoms["d1"] = 3;
-    atoms["d2"] = 4;
-    atoms["d3"] = 5;
+    atoms["a4"] = 3;
+    atoms["d1"] = 4;
+    atoms["d2"] = 5;
+    atoms["d3"] = 6;
+    atoms["d4"] = 7;
     set<string> variables;
     for (int i = 0; i < force.getNumPerDonorParameters(); i++)
         variables.insert(force.getPerDonorParameterName(i));
@@ -220,7 +204,34 @@ ParsedExpression CustomHbondForceImpl::prepareExpression(const CustomHbondForce&
         variables.insert(force.getPerAcceptorParameterName(i));
     for (int i = 0; i < force.getNumGlobalParameters(); i++)
         variables.insert(force.getGlobalParameterName(i));
-    return ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, variables)).optimize();
+    ParsedExpression result = ParsedExpression(replaceFunctions(expression.getRootNode(), atoms, distances, angles, dihedrals, variables)).optimize();
+
+    // Every particle referenced by the expression must be defined by every donor or acceptor group.
+
+    set<int> usedParticles;
+    for (auto* terms : {&distances, &angles, &dihedrals})
+        for (auto& term : *terms)
+            usedParticles.insert(term.second.begin(), term.second.end());
+    const string particleNames[] = {"a1", "a2", "a3", "a4", "d1", "d2", "d3", "d4"};
+    for (int particle : usedParticles) {
+        bool isDonor = (particle >= 4);
+        int slot = particle%4;
+        int numGroups = (isDonor ? force.getNumDonors() : force.getNumAcceptors());
+        for (int i = 0; i < numGroups; i++) {
+            int p[4];
+            if (isDonor)
+                force.getDonorParticles(i, p[0], p[1], p[2], p[3]);
+            else
+                force.getAcceptorParticles(i, p[0], p[1], p[2], p[3]);
+            if (p[slot] == -1) {
+                stringstream msg;
+                msg << "CustomHbondForce: The energy expression uses " << particleNames[particle] << ", but ";
+                msg << (isDonor ? "donor " : "acceptor ") << i << " does not include that particle";
+                throw OpenMMException(msg.str());
+            }
+        }
+    }
+    return result;
 }
 
 ExpressionTreeNode CustomHbondForceImpl::replaceFunctions(const ExpressionTreeNode& node, map<string, int> atoms,

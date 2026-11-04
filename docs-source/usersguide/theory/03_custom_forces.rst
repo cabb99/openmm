@@ -363,7 +363,7 @@ CustomHbondForce
 
 CustomHbondForce supports a wide variety of energy functions used to represent
 hydrogen bonding.  It computes interactions between "donor" particle groups and
-"acceptor" particle groups, where each group may include up to three particles.
+"acceptor" particle groups, where each group may include up to four particles.
 Typically a donor group consists of a hydrogen atom and the atoms it is bonded
 to, and an acceptor group consists of a negatively charged atom and the atoms it
 is bonded to.  The interaction energy between each donor group and each acceptor
@@ -379,8 +379,8 @@ depend on an arbitrary set of distances {\ :math:`r_i`\ }, angles {\ :math:`\the
 and dihedral angles {\ :math:`\phi_i`\ }.
 
 Each distance, angle, or dihedral is defined by specifying a sequence of
-particles chosen from the interacting donor and acceptor groups (up to six atoms
-to choose from, since each group may contain up to three atoms).  A distance
+particles chosen from the interacting donor and acceptor groups (up to eight atoms
+to choose from, since each group may contain up to four atoms).  A distance
 variable is defined by two particles, and equals the distance between them.  An
 angle variable is defined by three particles, and equals the angle between them.
 A dihedral variable is defined by four particles, and equals the angle between
